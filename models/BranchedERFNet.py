@@ -9,13 +9,13 @@ import models.hypernet as hypernet
 
 
 class BranchedERFNet(nn.Module):
-    def __init__(self, num_classes, encoder=None):
+    def __init__(self, in_channel,num_classes, encoder=None):
         super().__init__()
 
         print('Creating branched erfnet with {} classes'.format(num_classes))
 
         if (encoder is None):
-            self.encoder = erfnet.Encoder(sum(num_classes))
+            self.encoder = erfnet.Encoder(in_channel,sum(num_classes))
         else:
             self.encoder = encoder
 
@@ -42,6 +42,8 @@ class BranchedERFNet(nn.Module):
             output = self.encoder(input)
 
         return torch.cat([decoder.forward(output) for decoder in self.decoders], 1)
+
+
 class BranchedHyperNet(nn.Module):
     def __init__(self, in_channel,num_classes, encoder=None):
         super().__init__()
@@ -49,13 +51,14 @@ class BranchedHyperNet(nn.Module):
         print('Creating branched hypernet with {} classes'.format(num_classes))
 
         if (encoder is None):
-            self.encoder = hypernet.HyperEncoder(in_channel)
+            self.encoder = hypernet.HyperEncoder2(in_channel)
+            
         else:
             self.encoder = encoder
 
         self.decoders = nn.ModuleList()
         for n in num_classes:
-            self.decoders.append(hypernet.Decoder(n))
+            self.decoders.append(hypernet.HyperDecoder2(n))
 
     def init_output(self, n_sigma=1):
         with torch.no_grad():
@@ -75,4 +78,4 @@ class BranchedHyperNet(nn.Module):
         else:
             output = self.encoder(input)
 
-        return torch.cat([decoder.forward(output) for decoder in self.decoders], 1)
+        return torch.cat([decoder.forward(*output) for decoder in self.decoders], 1)

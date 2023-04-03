@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
+from models.common import *
 from functools import wraps
 from time import time
 
@@ -110,6 +111,42 @@ class Encoder(nn.Module):
             output = self.output_conv(output)
 
         return output
+class Encoder2(nn.Module):
+    def __init__(self,in_channel, num_classes):
+        super().__init__()
+        self.initial_block = ChannelSampler(in_channel, 16)
+
+        self.layers = nn.ModuleList()
+
+        self.layers.append(DownsamplerBlock(16, 64))
+
+        for x in range(0, 5):  # 5 times
+            self.layers.append(non_bottleneck_1d(64, 0.03, 1))
+
+        self.layers.append(DownsamplerBlock(64, 128))
+
+        for x in range(0, 2):  # 2 times
+            # self.layers.append(GCNet(128))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 2))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 4))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 8))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 16))
+
+        # Only in encoder mode:
+        self.output_conv = nn.Conv2d(
+            128, num_classes, 1, stride=1, padding=0, bias=True)
+
+    def forward(self, input, predict=False):
+        output = self.initial_block(input)
+
+        for layer in self.layers:
+            output = layer(output)
+
+        if predict:
+            output = self.output_conv(output)
+
+        return output
+
 
 
 class UpsamplerBlock (nn.Module):

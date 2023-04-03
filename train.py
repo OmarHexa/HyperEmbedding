@@ -25,7 +25,6 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     # define meters
     loss_meter = AverageMeter()
-
     # put model into training mode
     model.train()
 
@@ -35,6 +34,8 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
     for i, sample in enumerate(tqdm(train_dataloader)):
 
         im = sample['hs'].to(device)
+#         im = sample['image'].to(device)
+
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
@@ -46,7 +47,7 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
         loss.backward()
         optimizer.step()
         loss_meter.update(loss.item())
-
+        del sample, output
     return loss_meter.avg
 
 
@@ -63,6 +64,8 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
         for i, sample in enumerate(tqdm(val_dataloader)):
 
             im = sample['hs'].to(device)
+#             im = sample['image'].to(device)
+
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
@@ -78,7 +81,7 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             labels = class_labels[0].cpu().numpy()
                 
             base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
-            name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+base+'.png')
+            name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
             labels = visualizer.label2colormap(labels)
             gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
                 
@@ -106,8 +109,8 @@ def begin_trianing(args,device):
                                     batch_size=args['train_dataset']['batch_size'],
                                     shuffle=True,
                                     drop_last=True,
-                                    num_workers=args['train_dataset']['workers'],
-                                    pin_memory=True if args['cuda'] else False)
+                                    num_workers=args['train_dataset']['workers'])
+#                                     pin_memory=True if args['cuda'] else False)
 
 
 # val dataloader
@@ -117,8 +120,8 @@ def begin_trianing(args,device):
                                     batch_size=args['val_dataset']['batch_size'],
                                     shuffle=True,
                                     drop_last=True,
-                                    num_workers=args['train_dataset']['workers'],
-                                    pin_memory=True if args['cuda'] else False)
+                                    num_workers=args['train_dataset']['workers'])
+#                                     pin_memory=True if args['cuda'] else False)
 
 
 # set model
@@ -137,6 +140,7 @@ def begin_trianing(args,device):
     def lambda_(epoch):
         return pow((1-((epoch)/args['n_epochs'])), 0.9)
 
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_,)
 
 
     # clustering
@@ -172,7 +176,6 @@ def begin_trianing(args,device):
 
 
     for epoch in range(start_epoch, args['n_epochs']):
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_,)
         
 
         print('Starting epoch {}'.format(epoch))

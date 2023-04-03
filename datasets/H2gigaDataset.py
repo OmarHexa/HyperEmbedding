@@ -10,11 +10,20 @@ from skimage.segmentation import relabel_sequential
 from sklearn.decomposition import PCA
 import torch
 from torch.utils.data import Dataset
+from scipy.ndimage import gaussian_filter
 
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+def Interquartile_norm(cube):
+    # Calculate the mean and standard deviation of the cube
+    q75, q25 = np.percentile(cube, [75 ,25])
+    iqr = (q75 - q25)/1.35 #normalized IQR
+    
+    # Apply the Tanh Estimator formula to normalize the data
+    norm_cube = sigmoid(((cube - q25) / iqr))
+    return norm_cube
 
-
-
-def normalize_min_max_percentile(x, pmin=3, pmax=99.8, axis=None, clip=False, eps=1e-20, dtype=np.float32):
+def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=1e-20, dtype=np.float32):
     """
         Percentile-based image normalization.
         Function taken from StarDist repository  https://github.com/stardist/stardist
@@ -55,29 +64,29 @@ class H2gigaDataset(Dataset):
 
     def __init__(self, root_dir='./', type="train", class_id=None, size=None, normalize=True, transform=None):
 
-        print('`{}` dataset created! Accessing data from {}/{}/'.format(type, root_dir, type))
+        # print('`{}` dataset created! Accessing data from {}/{}/'.format(type, root_dir, type))
 
         # get image and instance and class map list
         path = os.path.join(root_dir, '{}/'.format(type))
         if os.path.exists(os.path.join(path,'images')):
             self.image_list = sorted(glob.glob(os.path.join(path, 'images/*.png')))
-            print('Number of images in `{}` directory is {}'.format(type, len(self.image_list)))
+            # print('Number of images in `{}` directory is {}'.format(type, len(self.image_list)))
         else:
             print('Image path does not exist')
         if os.path.exists(os.path.join(path,'instances')):
             self.instance_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'instances/*.png')))
-            print('Number of instances in `{}` directory is {}'.format(type, len(self.instance_list)))
+            # print('Number of instances in `{}` directory is {}'.format(type, len(self.instance_list)))
         else:
             print('Instance path does not exist')
         if os.path.exists(os.path.join(path,'classmaps')):
             self.classmap_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'classmaps/*.png')))
-            print('Number of instances in `{}` directory is {}'.format(type, len(self.classmap_list)))
+            # print('Number of instances in `{}` directory is {}'.format(type, len(self.classmap_list)))
         else:
             print('Class_map path does not exist')
             
         if os.path.exists(os.path.join(path,'hs')):
             self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
-            print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
+            # print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
         else:
             print('hyperspectral path does not exist')
         
@@ -87,7 +96,6 @@ class H2gigaDataset(Dataset):
         self.real_size = len(self.image_list)
         self.normalize = normalize
         self.transform = transform
-        self.pca = PCA(n_components = 3)
     def __len__(self):
 
         return self.real_size if self.size is None else self.size
@@ -101,23 +109,26 @@ class H2gigaDataset(Dataset):
         image = io.imread(self.image_list[index])
         if image.shape[-1]==4:
             image = rgba2rgb(image)
+        hs = np.load(self.hs_list[index])
+        
             
-        # if self.normalize:
-        #     image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
+        if self.normalize:
+#             image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
+            hs = Interquartile_norm(hs)
+            
         
         # normalize image
         
         sample['image'] = image
         sample['im_name'] = self.image_list[index]
+        sample['hs'] = hs
+        
         # load instances
         instance = io.imread(self.instance_list[index])
         label = io.imread(self.classmap_list[index])
         instance = self.convert_rgb2catagory(instance)
         label = self.convert_rgb2catagory(label,classMap=True)
         
-        hs = np.load(self.hs_list[index])
-        
-        sample['hs'] = hs
         
         if self.class_id is not None:
             instance,label= self.decode_instance(label,instance,self.class_id)

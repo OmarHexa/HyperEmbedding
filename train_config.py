@@ -16,8 +16,8 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exp',
-    resume_path=None, 
+    save_dir='./exp_hsErfnet',
+    resume_path='./exp_hsErfnet/checkpoint.pth', 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     train_dataset = {
@@ -29,6 +29,14 @@ args = dict(
             'size': None,
             'normalize':True,
             'transform': my_transforms.get_transform([
+                 {
+                    'name': 'RandomRotationsAndFlips',
+                    'opts': {
+                        'keys': ('image','hs', 'instance','label'),
+                        'degrees': 90,
+                    }
+                },
+               
                 {
                     'name': 'ToTensor',
                     'opts': {
@@ -40,7 +48,7 @@ args = dict(
                 },
             
             'batch_size': 20,
-            'workers': 2,
+            'workers': 8,
         }, 
 
     val_dataset = {
@@ -48,6 +56,7 @@ args = dict(
         'kwargs': {
             'root_dir': H2GIGA_DIR,
             'type': 'val',
+            'normalize':True,
             'transform': my_transforms.get_transform([
                 {
                     'name': 'ToTensor',
@@ -59,11 +68,11 @@ args = dict(
                 ]),
                 },
         'batch_size': 20,
-        'workers': 2,
+        'workers': 8,
     }, 
 
     model = {
-        'name': 'branced_hypernet', 
+        'name': 'branched_erfnet', 
         'kwargs': {
             'in_channel': 164,
             'num_classes': [4,5]
@@ -71,12 +80,12 @@ args = dict(
     }, 
 
     lr=5e-4,
-    n_epochs=50,
+    n_epochs=90,
     grid_size=1024,
 
     # loss options
     loss_opts={
-        'class_weight': [8, 10, 5, 8, 5],
+        'class_weight': [7.842, 6.839, 5.683, 9.029, 9.533],
         'num_class': 5,
         'n_sigma': 2
     },
@@ -86,4 +95,4 @@ args = dict(
 
 def get_args():
     return copy.deepcopy(args)
- 
+# [7.842, 6.839, 5.683, 9.029, 9.533]

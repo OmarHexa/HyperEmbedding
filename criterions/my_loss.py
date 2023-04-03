@@ -107,7 +107,6 @@ class SpatialEmbLoss(nn.Module):
                     instance_loss = instance_loss + \
                             lovasz_hinge(dist*2-1, in_mask)
 
-                    # seed loss
                     seed_loss += self.class_weight[i] * torch.sum(
                                 torch.pow(class_seed[in_mask] - dist[in_mask].detach(), 2))
 

@@ -144,7 +144,7 @@ class Cluster:
                 instance_map[mask.squeeze().cpu()] = instance_map_masked.cpu()
                 class_map[mask.squeeze().cpu()] = class_map_masked.cpu()
 
-        return instance_map, class_map, instance_score
+        return instance_map.cpu(), class_map.cpu(), instance_score
 
 class Logger:
 
@@ -247,7 +247,7 @@ class Visualizer:
         
         prediction = torch.zeros_like(vec_x)
         for i in range(self.num_class):
-            temp =torch.sigmoid(output[i+4])>0.9
+            temp =torch.sigmoid(output[i+4])>0.7
             prediction[temp] =i+1
         prediction = torch.from_numpy(self.label2colormap(prediction.numpy())).permute(2,0,1)
         offset = offset*255
