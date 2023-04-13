@@ -33,13 +33,13 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     for i, sample in enumerate(tqdm(train_dataloader)):
 
-        im = sample['hs'].to(device)
-#         im = sample['image'].to(device)
+        hs = sample['hs'].to(device)
+        im = sample['image'].to(device)
 
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
-        output = model(im)
+        output = model(hs,im)
         loss = criterion(output,instances, class_labels)
         loss = loss.mean()
 
@@ -63,13 +63,13 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
         for i, sample in enumerate(tqdm(val_dataloader)):
 
-            im = sample['hs'].to(device)
-#             im = sample['image'].to(device)
+            hs = sample['hs'].to(device)
+            im = sample['image'].to(device)
 
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
-            output = model(im)
+            output = model(hs,im)
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
             loss = loss.mean()
 
@@ -119,7 +119,7 @@ def begin_trianing(args,device):
                                     val_dataset,
                                     batch_size=args['val_dataset']['batch_size'],
                                     shuffle=True,
-                                    drop_last=True,
+                                    drop_last=False,
                                     num_workers=args['train_dataset']['workers'])
 #                                     pin_memory=True if args['cuda'] else False)
 

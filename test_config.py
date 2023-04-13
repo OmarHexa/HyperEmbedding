@@ -16,8 +16,8 @@ args = dict(
     display=True,
 
     save=True,
-    save_dir='./exp_test',
-    checkpoint_path='./exp_hs2/checkpoint.pth',
+    save_dir='./test',
+    checkpoint_path='./exp_multimodal/checkpoint.pth',
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     dataset= { 
@@ -39,7 +39,7 @@ args = dict(
     },
         
     model = {
-        'name': 'branced_hypernet',
+        'name': 'branched_multimodalnet',
         'kwargs': {
             'in_channel': 164,
             'num_classes': [4, 5],

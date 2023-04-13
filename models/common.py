@@ -83,7 +83,7 @@ class ELAN(nn.Module):
         self.comp1 = nn.Sequential(*[CBS(mid_channel,mid_channel,group=2) for _ in range(n)])
         self.comp2 = nn.Sequential(*[CBS(mid_channel,mid_channel,group=2) for _ in range(n)])
         self.agg = CBS(2*in_channel,out_channel,kernel=1)
-    @timing
+    # @timing
     def forward(self, input):
         #channel partialization
         x_left = self.convleft(input).chunk(2,1)
@@ -109,7 +109,7 @@ class ELAN_D(nn.Module):
         self.conv3 = CBS(mid_channel//2,mid_channel//2,group=2)
         self.conv4 = CBS(mid_channel//2,mid_channel//2,group=2)
         self.agg = CBS(2*in_channel,out_channel,kernel=1)
-    @timing
+    # @timing
     def forward(self, input):
         #channel partialization
         x_left = self.convleft(input)
@@ -159,34 +159,6 @@ class SOCA(nn.Module):
                               height, width)  # B x C x H x W
         # print("SOCA",x.shape)
         return out
-class LCA(nn.Module):
-    # Efficient Channel attention (Local)
-    def __init__(self, channels, gamma=2, b=1):
-        super().__init__()
-        
-        t = int(abs((math.log(channels, 2) + b) / gamma))
-        k_size = t if t % 2 else t + 1
-        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))    
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=int(k_size//2), bias=False)
-        self.sigmoid = nn.Sigmoid()
-    # @timing
-    def forward(self, x):
-        y = self.avg_pool(x)
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-        return x * y.expand_as(x)
-    
-class LSA(nn.Module):
-    # Local Spatial-attention module
-    def __init__(self, kernel_size=7):
-        super().__init__()
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-        self.cv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
-        self.act = nn.Sigmoid()
-        
-    def forward(self, x):
-        return x * self.act(self.cv1(torch.cat([torch.mean(x, 1, keepdim=True), torch.max(x, 1, keepdim=True)[0]], 1)))
 
 class GCNet(nn.Module):
     def __init__(self,in_channel,reduction_ratio=8) -> None:
@@ -417,7 +389,7 @@ class GLAM(nn.Module):
     def __init__(self,in_channel) -> None:
         super().__init__()
         self.Lc = LCA(in_channel) 
-        self.Ls = LSA(in_channel) #1xhxw
+        self.Ls = LSA() #1xhxw
         self.Gc = GCA(in_channel) #cxhxw (applied on the input)
         self.Gs = GSA(in_channel)
         self.weights = nn.Parameter(torch.ones(3))
@@ -503,25 +475,92 @@ class SPPF(nn.Module):
         y2 = self.m(y1)
         return self.cv2(torch.cat([x, y1, y2, self.m(y2)], 1))
     
-class CBS3D(nn.Module):
-    def __init__(self,in_channel,out_channel) -> None:
+
+class Focus(nn.Module):
+    # Focus wh information into c-space
+    def __init__(self, c1, c2, k=1, s=1, g=1):  # ch_in, ch_out, kernel, stride, padding, groups
         super().__init__()
-        k,s,p = find_p_s_k(in_channel,out_channel)
-        self.spectrum = nn.Conv3d(1,1,(k,1,1),(s,1,1),(p,0,0))
-        self.spatial = nn.Conv3d(1,1,(1,3,3),(1,1,1),(0,1,1))
-        self.bn = nn.BatchNorm2d(out_channel)
-    def forward(self,x):
-        x = self.spectrum(x.unsqueeze(1))
-        x = self.spatial(x)
-        x = F.silu(self.bn(x.squeeze(1)))
+        self.conv = CBS(c1 * 4, c2, k, s, g)
+        # self.contract = Contract(gain=2)
+    def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+        y = torch.cat((x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]), 1)
+        return self.conv(y)
+class STN(nn.Module):
+    def __init__(self,channel):
+        super().__init__()
+        # Spatial transformer localization-network
+        self.localization = nn.Sequential(
+            nn.Conv2d(channel, 8, kernel_size=7),
+            nn.MaxPool2d(2,stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(8, 10, kernel_size=5),
+            nn.AdaptiveMaxPool2d((7,7)),
+            nn.ReLU(True)
+        )
+
+        # Regressor for the 3 * 2 affine matrix
+        self.fc_loc = nn.Sequential(
+            nn.Linear(10 * 7 * 7, 32),
+            nn.ReLU(True),
+            nn.Linear(32, 3 * 2)
+        )
+
+        # Initialize the weights/bias with identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+
+    # Spatial transformer network forward function
+    def forward(self, x):
+        xs = self.localization(x)
+        xs = xs.view(-1, 10 * 7 * 7)
+        theta = self.fc_loc(xs)
+        theta = theta.view(-1, 2, 3)
+
+        grid = F.affine_grid(theta, x.size(),align_corners=True)
+        x = F.grid_sample(x, grid,align_corners=True)
+
         return x
-    
-def find_p_s_k(c, out):
-    for k in [5, 7, 9, 11, 13]:
-        for s in range(2,k):
-            for p in range(k-1):
-                result = ((c-k+2*p)//s)+1
-                if result == out:
-                    return k, s, p 
-    print("Combination of input and output channel not possible")
-    return None
+class CMAFF(nn.Module):
+    def __init__(self,channel) -> None:
+        super().__init__()
+        self.diff = DiffEnhanceModule(channel)
+        self.comm = CommonSelectModule(channel)
+    def forward(self,x1,x2):
+        Fc = self.comm(x1,x2)
+        Fd = self.diff(x1,x2)
+        return Fc+Fd
+class DiffEnhanceModule(nn.Module):
+    def __init__(self,channel) -> None:
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
+        self.max_pool = nn.AdaptiveMaxPool2d((1,1))
+        self.conv = nn.Conv2d(channel,channel,kernel_size=5,padding=2)
+        
+    def forward(self,x1,x2):
+        x_diff = x1-x2
+        Fap = self.conv(self.avg_pool(x_diff))
+        Fmp = self.conv(self.avg_pool(x_diff))
+        attn = torch.sigmoid(Fap+Fmp)
+        x1_att = x1*attn.expand_as(x1)
+        x2_att = x1*attn.expand_as(x2)
+        x1 = x1+x1_att
+        x2 = x2+x2_att
+        return x1+x2
+class CommonSelectModule(nn.Module):
+    def __init__(self,channel) -> None:
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
+        self.fc = nn.Linear(channel,channel//2)
+        self.fc1 =nn.Linear(channel//2,channel)
+        self.fc2 = nn.Linear(channel//2,channel)
+        
+    def forward(self,x1,x2):
+        x = self.avg_pool(x1+x2).view(x1.shape[0],-1)
+        x = self.fc(x)
+        att1 = self.fc1(x)
+        att2 = self.fc2(x)
+        attn = nn.functional.softmax(torch.stack((att1,att2),dim=2),dim=-1)
+        x1= x1*attn[...,0].view(-1,attn.shape[1],1,1).expand_as(x1)
+        x2= x2*attn[...,1].view(-1,attn.shape[1],1,1).expand_as(x2)
+        
+        return x1+x2

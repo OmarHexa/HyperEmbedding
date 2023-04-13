@@ -92,7 +92,7 @@ class HyperEncoder(nn.Module):
 class HyperEncoder2(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
-        self.stem = ChannelSampler(in_channel,16)
+        self.stem = Focus(in_channel,16)
         self.encoder = nn.ModuleList()
         self.encoder.append(EncoderBlock2(16,64,n=3))
         self.encoder.append(EncoderBlock2(64,128,n=6))

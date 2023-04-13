@@ -10,14 +10,14 @@ from PIL import Image
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='../Data/augmented/H2giga'
+H2GIGA_DIR='../Data/H2giga'
 
 args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exp_hsErfnet',
-    resume_path='./exp_hsErfnet/checkpoint.pth', 
+    save_dir='./exp_multimodal',
+    resume_path='./exp_multimodal/checkpoint.pth', 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     train_dataset = {
@@ -32,7 +32,7 @@ args = dict(
                  {
                     'name': 'RandomRotationsAndFlips',
                     'opts': {
-                        'keys': ('image','hs', 'instance','label'),
+                        'keys': ('image', 'hs','instance', 'label'),
                         'degrees': 90,
                     }
                 },
@@ -47,8 +47,8 @@ args = dict(
                 ]),
                 },
             
-            'batch_size': 20,
-            'workers': 8,
+            'batch_size': 4,
+            'workers': 2,
         }, 
 
     val_dataset = {
@@ -61,18 +61,18 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image','hs','instance', 'label'),
-                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys':('image', 'hs','instance', 'label'),
+                        'type': (torch.FloatTensor, torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 },
                 ]),
                 },
-        'batch_size': 20,
-        'workers': 8,
+        'batch_size': 3,
+        'workers': 1,
     }, 
 
     model = {
-        'name': 'branched_erfnet', 
+        'name': 'branched_multimodalnet', 
         'kwargs': {
             'in_channel': 164,
             'num_classes': [4,5]
@@ -80,7 +80,7 @@ args = dict(
     }, 
 
     lr=5e-4,
-    n_epochs=90,
+    n_epochs=100,
     grid_size=1024,
 
     # loss options
