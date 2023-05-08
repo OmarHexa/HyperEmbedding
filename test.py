@@ -76,10 +76,10 @@ def begin_test(args,n_sigma=2):
 
         for sample in tqdm(dataset_it):
 
-            im = sample['hs'].to(device)
+            im = sample['image'].to(device)
             label = sample['label'].squeeze()
         
-            output = model(im)
+            output,_ = model(im)
             instance_pred, class_pred,score = cluster.cluster(output[0], n_sigma=2,threshold=0.9,num_class=num_class)
             pred_score = torch.sigmoid(output[0][2+n_sigma:])
             metrics.add(label.numpy(),class_pred.numpy(),pred_score.cpu().numpy())

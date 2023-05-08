@@ -34,11 +34,11 @@ class EncoderBlock(nn.Module):
         super().__init__()
         self.down = DownsamplerBlock(in_channel, out_channel)
         self.compblock = C2f(out_channel, out_channel,n=n,shortcut=True)
-        self.attention = CBAM(out_channel)
+        # self.attention = CBAM(out_channel)
     def forward(self, x):
         x = self.down(x)
-        x = self.attention(x)
         x = self.compblock(x)
+        # x = self.attention(x)
         return x
 class EncoderBlock2(nn.Module):
     def __init__(self, in_channel,out_channel,n=3) -> None:
@@ -52,7 +52,7 @@ class EncoderBlock2(nn.Module):
 class DecoderBlock2(nn.Module):
     def __init__(self, in_channel, out_channel) -> None:
         super().__init__()
-        self.comp = C2FA(in_channel,in_channel)
+        self.comp = C2f(in_channel,in_channel)
         self.up = Upsampler(in_channel, out_channel)
     def forward(self, x,x_skip):
         x = self.comp(torch.sum((x,x_skip)))
@@ -72,10 +72,10 @@ class DecoderBlock(nn.Module):
         return x
 
 
-class HyperEncoder(nn.Module):
+class RGBEncoder(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
-        self.stem = ChannelSampler(in_channel,32)
+        self.stem = DFocus(in_channel,32)
         self.encoder = nn.ModuleList()
         self.encoder.append(EncoderBlock(32,64,n=3))
         self.encoder.append(EncoderBlock(64,128,n=6))
@@ -89,7 +89,7 @@ class HyperEncoder(nn.Module):
         en4 = self.encoder[2](en3)
         en4 = self.encoder[3](en4)
         return  en4,en3,en2
-class HyperEncoder2(nn.Module):
+class HyperEncoder(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
         self.stem = ChannelSampler(in_channel,16)
@@ -126,16 +126,19 @@ class HyperDecoder2(nn.Module):
 class HyperDecoder (nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.up = Upsampler(256,128)
+        self.up1 = Upsampler(256,128)
         self.decode1 = DecoderBlock(128,64)
         self.decode2 = DecoderBlock(64,32)
         self.output_conv = nn.ConvTranspose2d(
             32, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+        # self.up_final = nn.UpsamplingBilinear2d(scale_factor=2)
+    # @timing
     def forward(self, en4,en3,en2):
-        output= self.up(en4)
+        output= self.up1(en4)
         output = self.decode1(output,en3)
         output = self.decode2(output,en2)
         output = self.output_conv(output)
+        # print("Decoder")
         return output
     
 class HyperNet(nn.Module):

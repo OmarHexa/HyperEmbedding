@@ -13,17 +13,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 from criterions.lovasz_losses import lovasz_hinge
+import torch.nn.functional as F
 
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, to_center=True, n_sigma=2, class_weight=[1],num_class=5):
+    def __init__(self, center="approximate-medoid", n_sigma=2, class_weight=[1],num_class=5):
         super().__init__()
 
-        print('Created spatial emb loss function with: to_center: {}, n_sigma: {}'.format(
-            to_center, n_sigma))
+        print('Created spatial emb loss function with: center as: {}, n_sigma: {}'.format(
+            center, n_sigma))
 
-        self.to_center = to_center
+        self.center = center
         self.n_sigma = n_sigma
         self.class_weight = class_weight
         self.class_ids =list(range(1,num_class+1))
@@ -76,14 +77,22 @@ class SpatialEmbLoss(nn.Module):
 
                     in_mask = instance_per_cls.eq(id)   # 1 x h x w
 
-                    # calculate center of attraction
-                    if self.to_center:
+                     if self.center=="centroid":
                         xy_in = xym_s[in_mask.expand_as(xym_s)]
-                        xy_in =xy_in.view(2,-1)
+                        xy_in =xy_in.view(2,-1) #2xpixels
                         center = xy_in.mean(1).view(2, 1, 1)  # 2 x 1 x 1
+                    elif self.center == 'approximate-medoid':
+                        xy_in = xym_s[in_mask.expand_as(xym_s)]
+                        xy_in = xy_in.view(2, -1)
+                        xm_temp, ym_temp = torch.median(xy_in, dim=1)[0]
+                        dist = torch.sum((xy_in - torch.tensor([xm_temp, ym_temp]).view(2, 1)) ** 2, dim=0)
+                        imin = torch.argmin(dist)
+                        center = xy_in[:, imin].view(2, 1, 1)
+
                     else:
                         center = spatial_emb[in_mask.expand_as(spatial_emb)].view(
                                             2, -1).mean(1).view(2, 1, 1)  # 2 x 1 x 1
+
 
                     # calculate sigma
                     sigma_in = sigma[in_mask.expand_as(
@@ -126,7 +135,60 @@ class SpatialEmbLoss(nn.Module):
 
         loss = loss / (b+1)
         return loss
+    def auxiliary_loss(self,labels, features,margin=10,weight=0.5):
+        b,c,h,w = features.shape
+        # Resize the label to match the feature array size
+        labels = F.interpolate(labels.float().unsqueeze(1),size=(h,w),mode='nearest').long()  # size: (H/8, W/8)
+        # Extract the unique classes in the label
+        num_class = torch.unique(labels)  # size: (num_classes,)
+        intra_losses = []
+        features = features.permute(0,2,3,1).reshape(-1,c) #size: (B*H*W,C) 
+        # Compute the mean feature vector for each class
+        mean_vectors = torch.zeros((num_class.shape[0], c),device= features.device)  # size: (batch_size, num_classes, C)
+        for i, class_idx in enumerate(num_class):
+            mask = labels == class_idx
+            masked_features = features[mask.view(-1)]
+            # masked_features = features[mask.expand_as(features)].reshape(-1, c)
+            mean_vectors[i] = torch.mean(masked_features,dim=0)  # size: (batch_size, C)
+            # dist = 1-cosine_similarity(masked_features, mean_vectors[i].repeat(masked_features.shape[0], 1))
+            dist = 1 - F.cosine_similarity(masked_features, mean_vectors[i].clone(), dim=1)
+            intra_losses.append(dist.mean())
+        # Compute the intra-class loss
+        intra_loss = torch.stack(intra_losses).mean()
+        class_sim =torch.triu(cosine_similarity(mean_vectors),diagonal=1)
+        inter_loss = class_sim[class_sim>0].sum()/len(num_class)
 
+        
+        loss = inter_loss+intra_loss
+        return loss
+    
+    # def auxiliary_loss(self,labels, features):
+    #     b,c,h,w = features.shape
+    #     # Resize the label to match the feature array size
+    #     labels = F.interpolate(labels.float().unsqueeze(1),size=(h,w),mode='nearest').long()  # size: (H/8, W/8)
+
+    #     # Extract the unique classes in the label
+    #     num_class = torch.unique(labels)  # size: (num_classes,)
+    
+    #     intra_losses = []
+    #     # Compute the mean feature vector for each class
+    #     mean_vectors = torch.zeros((num_class.shape[0], c),device= features.device)  # size: (batch_size, num_classes, C)
+    #     for i, class_idx in enumerate(num_class):
+    #         mask = labels == class_idx
+    #         masked_features = features[mask.expand_as(features)].reshape(-1, c)
+    #         mean_vectors[i] = torch.mean(masked_features,dim=(0,1))  # size: (batch_size, C)
+    #         dis = torch.cdist(masked_features, mean_vectors[i].repeat(masked_features.shape[0], 1), p=2)
+    #         intra_losses.append(dis.mean())
+
+    #     # Compute the intra-class loss
+    #     intra_loss = torch.stack(intra_losses).mean()
+
+    #     class_dist = torch.cdist(mean_vectors,mean_vectors,p=2)
+    #     class_dist = class_dist[class_dist != 0.0]
+    #     inter_loss = torch.mean(torch.clamp((10-class_dist),min=0.0))
+    #     loss = inter_loss+intra_loss
+    #     # loss = inter_loss
+    #     return loss
 
 def calculate_iou(pred, label):
     intersection = ((label == 1) & (pred == 1)).sum()
@@ -137,7 +199,11 @@ def calculate_iou(pred, label):
         iou = intersection.item() / union.item()
         return iou
 
-
+def cosine_similarity(x1, x2=None, eps=1e-8):
+    x2 = x1 if x2 is None else x2
+    w1 = x1.norm(p=2, dim=1, keepdim=True)
+    w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
+    return torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
 
 
 def DiceBceLoss(inputs, targets, smooth=1):      

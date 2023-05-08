@@ -33,21 +33,22 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     for i, sample in enumerate(tqdm(train_dataloader)):
 
-        im = sample['hs'].to(device)
-#         im = sample['image'].to(device)
+        # im = sample['hs'].to(device)
+        im = sample['image'].to(device)
 
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
-        output = model(im)
+        output,features = model(im)
         loss = criterion(output,instances, class_labels)
-        loss = loss.mean()
+        aux = criterion.module.auxiliary_loss(class_labels,features)
+        loss = loss.mean()+(0.5*aux.mean())
+        # loss = loss.mean()
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         loss_meter.update(loss.item())
-        del sample, output
     return loss_meter.avg
 
 
@@ -63,15 +64,16 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
         for i, sample in enumerate(tqdm(val_dataloader)):
 
-            im = sample['hs'].to(device)
-#             im = sample['image'].to(device)
+            # im = sample['hs'].to(device)
+            im = sample['image'].to(device)
 
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
-            output = model(im)
+            output,features = model(im)
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
-            loss = loss.mean()
+            aux = criterion.module.auxiliary_loss(class_labels,features)
+            loss = loss.mean()+(0.5*aux.mean())
 
             loss_meter.update(loss.item())
             

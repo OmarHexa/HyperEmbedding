@@ -226,24 +226,6 @@ class DownsamplerBlock(nn.Module):
         output = self.bn(output)
         return F.silu(output)
     
-# class ChannelSampler(nn.Module):
-#     def __init__(self,in_channel,out_channel) -> None:
-#         super().__init__()
-#         # in_channel = in_channel//2
-#         mid_channel = out_channel//2
-#         self.ap = nn.AvgPool2d(2,2)
-#         self.convleft = GhostConv(in_channel, mid_channel,k=1)
-#         self.mp = nn.MaxPool2d(2,2)
-#         self.convright = CBS3D(in_channel,mid_channel)
-#     def forward(self,input):
-#         # input = input.chunk(2,1)
-#         output1 = self.ap(input)
-#         output1 = self.convleft(output1)
-#         output2 = self.mp(input)
-#         output2 = self.convright(output2)
-#         output = torch.cat((output1,output2),dim=1)
-        
-#         return output
 class SOECA(nn.Module):
     def __init__(self,channels,gamma=2,b=1) -> None:
         super().__init__()
@@ -525,3 +507,32 @@ def find_p_s_k(c, out):
                     return k, s, p 
     print("Combination of input and output channel not possible")
     return None
+class Focus(nn.Module):
+    # Focus wh information into c-space
+    def __init__(self, c1, c2, k=3, s=1, g=1):  # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__()
+        self.conv = CBS(c1 * 4, c2, k, s, g)
+    def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+        y = torch.cat((x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]), 1)
+        return self.conv(y)
+    
+class DFocus(nn.Module):
+    def __init__(self, in_channels, out_channels, dilation_rates=[1, 2, 3]):
+        super(DFocus, self).__init__()
+        # assert out_channels % 3 == 0, "Output channels must be divisible by 3"
+        self.out_channels = out_channels
+        self.r1_channels = out_channels // 3
+        self.r2_channels = out_channels // 3
+        self.r3_channels = out_channels - self.r1_channels - self.r2_channels
+        
+        self.conv_r1 = nn.Conv2d(in_channels, self.r1_channels, kernel_size=3, stride=2, padding=dilation_rates[0]*1, dilation=dilation_rates[0])
+        self.conv_r2 = nn.Conv2d(in_channels, self.r2_channels, kernel_size=3, stride=2, padding=dilation_rates[1]*1, dilation=dilation_rates[1])
+        self.conv_r3 = nn.Conv2d(in_channels, self.r3_channels, kernel_size=3, stride=2, padding=dilation_rates[2]*1, dilation=dilation_rates[2])
+        
+    def forward(self, x):
+        out_r1 = self.conv_r1(x)
+        out_r2 = self.conv_r2(x)
+        out_r3 = self.conv_r3(x)
+        out = torch.cat([out_r1, out_r2, out_r3], dim=1)
+        return out
+

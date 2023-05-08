@@ -5,8 +5,6 @@ Licensed under the CC BY-NC 4.0 license (https://creativecommons.org/licenses/by
 import copy
 import os
 
-from PIL import Image
-
 import torch
 from utils import transforms as my_transforms
 
@@ -16,8 +14,8 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exp_hsErfnet',
-    resume_path='./exp_hsErfnet/checkpoint.pth', 
+    save_dir='./exprgb_auxloss_cosv7',
+    resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     train_dataset = {
@@ -32,7 +30,7 @@ args = dict(
                  {
                     'name': 'RandomRotationsAndFlips',
                     'opts': {
-                        'keys': ('image','hs', 'instance','label'),
+                        'keys': ('image', 'instance','label'),
                         'degrees': 90,
                     }
                 },
@@ -40,15 +38,15 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'hs','instance', 'label'),
-                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','instance', 'label'),
+                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 },
                 ]),
                 },
             
             'batch_size': 20,
-            'workers': 8,
+            'workers': 4,
         }, 
 
     val_dataset = {
@@ -61,26 +59,26 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image','hs','instance', 'label'),
-                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','instance', 'label'),
+                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 },
                 ]),
                 },
         'batch_size': 20,
-        'workers': 8,
+        'workers': 4,
     }, 
 
     model = {
-        'name': 'branched_erfnet', 
+        'name': 'branched_hypernet', 
         'kwargs': {
-            'in_channel': 164,
+            'in_channel': 3,
             'num_classes': [4,5]
         }
     }, 
 
     lr=5e-4,
-    n_epochs=90,
+    n_epochs=100,
     grid_size=1024,
 
     # loss options

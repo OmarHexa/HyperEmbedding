@@ -12,16 +12,13 @@ import torch
 from torch.utils.data import Dataset
 from scipy.ndimage import gaussian_filter
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-def Interquartile_norm(cube):
-    # Calculate the mean and standard deviation of the cube
-    q75, q25 = np.percentile(cube, [75 ,25])
-    iqr = (q75 - q25)/1.35 #normalized IQR
-    
-    # Apply the Tanh Estimator formula to normalize the data
-    norm_cube = sigmoid(((cube - q25) / iqr))
-    return norm_cube
+def band_quertile_norm(Data):
+   [m, n, l] = np.shape(Data)
+   for i in range(l):
+      q3,q2,q1 = np.percentile(Data[:, :, i],[75,50,25])
+      iqr = (q3 - q1)*1.35
+      Data[:, :, i] = (Data[:, :, i] - q2)/iqr
+   return Data
 
 def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=1e-20, dtype=np.float32):
     """
@@ -84,11 +81,11 @@ class H2gigaDataset(Dataset):
         else:
             print('Class_map path does not exist')
             
-        if os.path.exists(os.path.join(path,'hs')):
-            self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
-            # print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
-        else:
-            print('hyperspectral path does not exist')
+        # if os.path.exists(os.path.join(path,'hs')):
+        #     self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
+        #     # print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
+        # else:
+        #     print('hyperspectral path does not exist')
         
         
         self.class_id = class_id
@@ -109,19 +106,19 @@ class H2gigaDataset(Dataset):
         image = io.imread(self.image_list[index])
         if image.shape[-1]==4:
             image = rgba2rgb(image)
-        hs = np.load(self.hs_list[index])
+        # hs = np.load(self.hs_list[index])
         
             
         if self.normalize:
-#             image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
-            hs = Interquartile_norm(hs)
+            image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
+            # hs = band_quertile_norm(hs)
             
         
         # normalize image
         
         sample['image'] = image
         sample['im_name'] = self.image_list[index]
-        sample['hs'] = hs
+        # sample['hs'] = hs
         
         # load instances
         instance = io.imread(self.instance_list[index])

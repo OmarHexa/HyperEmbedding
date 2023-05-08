@@ -7,7 +7,7 @@ import copy
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='../Data/augmented/H2giga/'
+H2GIGA_DIR='../Data/augmented_old/H2giga/'
 
 
 args = dict(
@@ -16,8 +16,8 @@ args = dict(
     display=True,
 
     save=True,
-    save_dir='./exp_test',
-    checkpoint_path='./exp_hs2/checkpoint.pth',
+    save_dir='./test_rgb_auxlossv7',
+    checkpoint_path='./exprgb_auxloss_cosv7/checkpoint.pth',
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     dataset= { 
@@ -30,8 +30,8 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'hs','instance', 'label'),
-                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','instance', 'label'),
+                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                     }
                 },
             ]),
@@ -39,9 +39,9 @@ args = dict(
     },
         
     model = {
-        'name': 'branced_hypernet',
+        'name': 'branched_hypernet',
         'kwargs': {
-            'in_channel': 164,
+            'in_channel': 3,
             'num_classes': [4, 5],
         }
     }

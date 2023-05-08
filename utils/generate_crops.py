@@ -34,7 +34,7 @@ def hs_to_rgb(hs,red_band=72,green_band=50,blue_band=30):
 #         blue_im = hs[:,:,blue_band]
 #         #Stack the channel in thrid dimension 
 #         HS_to_RGB = np.dstack((red_im,green_im,blue_im))
-        HS_to_RGB = hs[:,:,(88,63,27)]
+        HS_to_RGB = hs[:,:,(160,100,45)]
         # Normalize the value and convert to uint8 image
         HS_to_RGB = cv2.normalize(HS_to_RGB, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
         alpha = 2.5
@@ -73,7 +73,7 @@ def get_affine_matrix(image, spectral_image):
         """
         
         # Intiate sift object
-        sift = cv2.SIFT_create(2000,sigma=1, contrastThreshold=0.01)
+        sift = cv2.SIFT_create(2000,sigma=3.0, contrastThreshold=0.01)
         # Detect SIFT features in the rgb image
         keypoints_rgb, descriptors_rgb = sift.detectAndCompute(image, None)
 
@@ -144,7 +144,9 @@ def process_with_pool(tup):
     
     """
 #     assert len(tup)==6
-    image_name,instance_name,classmap_name,hs_name,header_name,crop_size,crops_dir,data_subset = tup
+    print("*******strating****")
+    # image_name,instance_name,classmap_name,hs_name,header_name,crop_size,crops_dir,data_subset = tup
+    image_name,instance_name,classmap_name,hs_name,crop_size,crops_dir,data_subset = tup
     background_id=0
 
     
@@ -173,14 +175,14 @@ def process_with_pool(tup):
     
     h, w, c = image.shape
     
-    spectral_cube = sp.envi.open(header_name, hs_name).load()
-    #convert hyperspectral to rgb image
-    spectral_image = hs_to_rgb(spectral_cube)
-    # calculate the affine transformation 
-    M = get_affine_matrix(image,spectral_image)
-    # register the hyperspectral image
-    spectral_reg = coregister_hs(spectral_cube,M,(h,w))
-    
+    # spectral_cube = sp.envi.open(header_name, hs_name).load()
+    # #convert hyperspectral to rgb image
+    # spectral_image = hs_to_rgb(spectral_cube)
+    # # calculate the affine transformation 
+    # M = get_affine_matrix(image,spectral_image)
+    # # register the hyperspectral image
+    # spectral_reg = coregister_hs(spectral_cube,M,(h,w))
+    spectral_reg = np.load(hs_name)
     
     
 
