@@ -11,7 +11,8 @@ from torchvision.transforms import functional as F
 from torchvision.transforms import transforms as T
 
 import torch
-
+import albumentations as A
+from skimage.util import img_as_ubyte,img_as_float32
 
 
 
@@ -207,7 +208,31 @@ class ToTensor(object):
 
         return sample
 
-
+class ColorAugmentation:
+    
+    def __init__(self, keys=[], *args, **kwargs):
+        
+        self.transform = A.Compose([
+            A.OneOf([
+                A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20),
+                A.RandomGamma(),
+                A.ColorJitter(brightness=0.5, contrast=0.3, saturation=0.2, hue=0.5),
+            ], p=0.5),
+            A.OneOf([
+                A.GaussNoise(),
+                A.Blur(blur_limit=5),
+                A.MedianBlur(blur_limit=3),
+            ], p=0.5),
+        ])
+        
+        self.keys = keys
+        
+    def __call__(self, sample):
+        assert 'image' in sample
+        image = img_as_ubyte(sample['image'])
+        image = self.transform(image=image)['image']
+        sample['image'] = img_as_float32(image)
+        return sample
 def get_transform(transforms):
     transform_list = []
 

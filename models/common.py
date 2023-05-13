@@ -29,12 +29,13 @@ class CBS(nn.Module):
             padd = 0
         self.conv = nn.Conv2d(in_channel,out_channel,kernel_size=kernel,stride=stride,padding=padd,groups=group)
         self.bn = nn.BatchNorm2d(out_channel,eps=1e-03)
-    # @timing
     def forward(self,x):
         x = self.conv(x)
         x= self.bn(x)
         x = F.silu(x)
         return x
+    def fuseforward(self,x):
+        return F.silu(self.conv(x))
 
 class non_bottleneck_1d(nn.Module):
     def __init__(self, chann, dropprob=0.3, groups =2,dilation=1):
@@ -83,7 +84,6 @@ class ELAN(nn.Module):
         self.comp1 = nn.Sequential(*[CBS(mid_channel,mid_channel,group=2) for _ in range(n)])
         self.comp2 = nn.Sequential(*[CBS(mid_channel,mid_channel,group=2) for _ in range(n)])
         self.agg = CBS(2*in_channel,out_channel,kernel=1)
-    @timing
     def forward(self, input):
         #channel partialization
         x_left = self.convleft(input).chunk(2,1)
@@ -109,7 +109,6 @@ class ELAN_D(nn.Module):
         self.conv3 = CBS(mid_channel//2,mid_channel//2,group=2)
         self.conv4 = CBS(mid_channel//2,mid_channel//2,group=2)
         self.agg = CBS(2*in_channel,out_channel,kernel=1)
-    @timing
     def forward(self, input):
         #channel partialization
         x_left = self.convleft(input)
@@ -288,34 +287,6 @@ class Upsampler(nn.Module):
         x = self.up(x)
         return x
  
-class LCA(nn.Module):
-    # Efficient Channel attention (Local)
-    def __init__(self, channels, gamma=2, b=1):
-        super().__init__()
-        
-        t = int(abs((math.log(channels, 2) + b) / gamma))
-        k_size = t if t % 2 else t + 1
-        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))    
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=int(k_size//2), bias=False)
-        self.sigmoid = nn.Sigmoid()
-        
-    def forward(self, x):
-        y = self.avg_pool(x)
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-        return x * y.expand_as(x)
-    
-class LSA(nn.Module):
-    # Local Spatial-attention module
-    def __init__(self, kernel_size=7):
-        super().__init__()
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-        self.cv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
-        self.act = nn.Sigmoid()
-    def forward(self, x):
-        return x * self.act(self.cv1(torch.cat([torch.mean(x, 1, keepdim=True), torch.max(x, 1, keepdim=True)[0]], 1)))
-
 class CBAM(nn.Module):
     # Convolutional Block Attention Module
     def __init__(self, c1, kernel_size=7):  # ch_in, kernels
@@ -429,24 +400,7 @@ class C2f(nn.Module):
         y = list(self.cv1(x).chunk(2, 1))
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
-class C2FA(nn.Module):
-    # CSP Bottleneck with 2 convolutions
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__()
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = CBS(c1, 2 * self.c, 1)
-        self.cv2 = CBS((2 + n) * self.c, c2, 1)
-        self.sa = LSA(7)
-        self.ca = LCA((2 + n) * self.c)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=3, e=1) for _ in range(n))
-    # @timing   
-    def forward(self, x):
-        y = self.sa(self.cv1(x))
-        y = list(y.chunk(2,1))
-        y.extend(m(y[-1]) for m in self.m)
-        y = self.ca(torch.cat(y, 1))
-        return self.cv2(y)
-    
+
 class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, c1, c2, shortcut=True, g=1, k=3, e=0.5):  # ch_in, ch_out, shortcut, groups, kernels, expand
@@ -484,29 +438,6 @@ class SPPF(nn.Module):
         y1 = self.m(x)
         y2 = self.m(y1)
         return self.cv2(torch.cat([x, y1, y2, self.m(y2)], 1))
-    
-class CBS3D(nn.Module):
-    def __init__(self,in_channel,out_channel) -> None:
-        super().__init__()
-        k,s,p = find_p_s_k(in_channel,out_channel)
-        self.spectrum = nn.Conv3d(1,1,(k,1,1),(s,1,1),(p,0,0))
-        self.spatial = nn.Conv3d(1,1,(1,3,3),(1,1,1),(0,1,1))
-        self.bn = nn.BatchNorm2d(out_channel)
-    def forward(self,x):
-        x = self.spectrum(x.unsqueeze(1))
-        x = self.spatial(x)
-        x = F.silu(self.bn(x.squeeze(1)))
-        return x
-    
-def find_p_s_k(c, out):
-    for k in [5, 7, 9, 11, 13]:
-        for s in range(2,k):
-            for p in range(k-1):
-                result = ((c-k+2*p)//s)+1
-                if result == out:
-                    return k, s, p 
-    print("Combination of input and output channel not possible")
-    return None
 class Focus(nn.Module):
     # Focus wh information into c-space
     def __init__(self, c1, c2, k=3, s=1, g=1):  # ch_in, ch_out, kernel, stride, padding, groups

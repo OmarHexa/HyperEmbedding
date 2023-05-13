@@ -16,8 +16,8 @@ args = dict(
     display=True,
 
     save=True,
-    save_dir='./test_rgb_auxlossv7',
-    checkpoint_path='./exprgb_auxloss_cosv7/checkpoint.pth',
+    save_dir='./test_coloraugment',
+    checkpoint_path='./exprgb_auxloss_mediod/checkpoint.pth',
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     dataset= { 

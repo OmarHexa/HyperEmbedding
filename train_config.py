@@ -14,7 +14,7 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exprgb_auxloss_cosv7',
+    save_dir='./exprgb_coloraug',
     resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
@@ -34,14 +34,19 @@ args = dict(
                         'degrees': 90,
                     }
                 },
-               
+                  {
+                    'name': 'ColorAugmentation',
+                    'opts': {
+                        'keys': ('image', 'instance', 'label'),
+                    }
+                },
                 {
                     'name': 'ToTensor',
                     'opts': {
                         'keys': ('image','instance', 'label'),
                         'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
-                },
+                }
                 ]),
                 },
             
@@ -78,7 +83,7 @@ args = dict(
     }, 
 
     lr=5e-4,
-    n_epochs=100,
+    n_epochs=120,
     grid_size=1024,
 
     # loss options

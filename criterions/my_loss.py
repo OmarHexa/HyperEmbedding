@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, center="approximate-medoid", n_sigma=2, class_weight=[1],num_class=5):
+    def __init__(self, center="medoid", n_sigma=2, class_weight=[1],num_class=5):
         super().__init__()
 
         print('Created spatial emb loss function with: center as: {}, n_sigma: {}'.format(
@@ -77,17 +77,23 @@ class SpatialEmbLoss(nn.Module):
 
                     in_mask = instance_per_cls.eq(id)   # 1 x h x w
 
-                     if self.center=="centroid":
+                    if self.center=="centroid":
                         xy_in = xym_s[in_mask.expand_as(xym_s)]
                         xy_in =xy_in.view(2,-1) #2xpixels
                         center = xy_in.mean(1).view(2, 1, 1)  # 2 x 1 x 1
                     elif self.center == 'approximate-medoid':
                         xy_in = xym_s[in_mask.expand_as(xym_s)]
                         xy_in = xy_in.view(2, -1)
-                        xm_temp, ym_temp = torch.median(xy_in, dim=1)[0]
-                        dist = torch.sum((xy_in - torch.tensor([xm_temp, ym_temp]).view(2, 1)) ** 2, dim=0)
+                        xy_median = torch.median(xy_in, dim=1)[0]
+                        dist = torch.sum((xy_in - xy_median.view(2, 1)) ** 2, dim=0)
                         imin = torch.argmin(dist)
                         center = xy_in[:, imin].view(2, 1, 1)
+                    elif self.center == 'medoid':
+                        xy_in = xym_s[in_mask.expand_as(xym_s)]
+                        xy_in = xy_in.view(2,-1).transpose(1,0)
+                        dist = torch.cdist(xy_in, xy_in, p=2)
+                        imin = torch.argmin(torch.sum(dist, dim=1))
+                        center = xy_in[imin].view(2, 1, 1)
 
                     else:
                         center = spatial_emb[in_mask.expand_as(spatial_emb)].view(

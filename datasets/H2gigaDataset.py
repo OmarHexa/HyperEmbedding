@@ -13,13 +13,45 @@ from torch.utils.data import Dataset
 from scipy.ndimage import gaussian_filter
 
 def band_quertile_norm(Data):
-   [m, n, l] = np.shape(Data)
-   for i in range(l):
-      q3,q2,q1 = np.percentile(Data[:, :, i],[75,50,25])
-      iqr = (q3 - q1)*1.35
-      Data[:, :, i] = (Data[:, :, i] - q2)/iqr
-   return Data
+    # Calculate the mean and standard deviation of each band across the hxw dimension
+    q3, q2, q1 = np.percentile(Data, [75, 50, 25], axis=(0,1))
+    iqr = (q3 - q1) * 1.35
+    # Perform normalization
+    cube = (Data - q2) / iqr
+    return cube
 
+def quertile_norm(image):
+
+    # Calculate the mean and standard deviation of each pixel across the band dimension
+    q3,q2,q1 = np.percentile(image,[75, 50, 25], axis=-1, keepdims=True)
+    iqr = (q3-q1)/1.35
+    # Perform normalization
+    norm = (image - q2) /iqr
+    return norm
+
+def infinity_norm(Data):
+    max = np.max(Data,axis=-1,keepdims=True)
+    # Scale each pixel by its feature vector length
+    scaled_data = Data / max
+    return scaled_data
+def rank_norm(Data):
+    # Flatten each band into a 1D array
+    flat_data = Data.reshape(-1, Data.shape[-1])
+    # Compute the ranks of each value in each band
+    ranks = np.apply_along_axis(lambda x: rankdata(x, method='min'), axis=-1, arr=flat_data)
+    # Reshape the ranks back into a 3D array
+    rank_cube = ranks.reshape(Data.shape)
+    # Scale the rank values to [0,1] range
+    norm_cube = (rank_cube) / Data.shape[-1]
+    return norm_cube
+def pixelwise_standardization(image):
+    # Calculate the mean and standard deviation of each pixel across the band dimension
+    mean = np.mean(image, axis=-1, keepdims=True)
+    std = np.std(image, axis=-1, keepdims=True)
+    # Perform normalization
+    norm = (image - mean) / std
+
+    return norm
 def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=1e-20, dtype=np.float32):
     """
         Percentile-based image normalization.
@@ -28,8 +60,6 @@ def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=
     mi = np.percentile(x, pmin, axis=axis, keepdims=True)
     ma = np.percentile(x, pmax, axis=axis, keepdims=True)
     return normalize_mi_ma(x, mi, ma, clip=clip, eps=eps, dtype=dtype)
-
-
 def normalize_mi_ma(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     """
         Percentile-based image normalization.
@@ -51,6 +81,20 @@ def normalize_mi_ma(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
         x = np.clip(x, 0, 1)
 
     return x
+def normalize_min_max(img):
+    # Convert to float if necessary
+    if not np.issubdtype(img.dtype, np.floating):
+        img = img.astype(np.float32)
+    
+    # Calculate minimum and maximum values
+    min_val = img.min()
+    max_val = img.max()
+    
+    # Normalize the image
+    img_norm = (img - min_val) / (max_val - min_val)
+    
+    return img_norm
+
 
 
 class H2gigaDataset(Dataset):
@@ -81,11 +125,11 @@ class H2gigaDataset(Dataset):
         else:
             print('Class_map path does not exist')
             
-        # if os.path.exists(os.path.join(path,'hs')):
-        #     self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
-        #     # print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
-        # else:
-        #     print('hyperspectral path does not exist')
+        if os.path.exists(os.path.join(path,'hs')):
+            self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
+            # print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
+        else:
+            print('hyperspectral path does not exist')
         
         
         self.class_id = class_id
@@ -106,12 +150,12 @@ class H2gigaDataset(Dataset):
         image = io.imread(self.image_list[index])
         if image.shape[-1]==4:
             image = rgba2rgb(image)
-        # hs = np.load(self.hs_list[index])
+        hs = np.load(self.hs_list[index])[10:]
         
             
         if self.normalize:
-            image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
-            # hs = band_quertile_norm(hs)
+            image = normalize_min_max(image)
+            hs = rank_norm(hs)
             
         
         # normalize image
