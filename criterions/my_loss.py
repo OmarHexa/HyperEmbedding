@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, center="centroid", n_sigma=2, class_weight=[1],num_class=5):
+    def __init__(self, center="approximate_medoid", n_sigma=2, class_weight=[1],num_class=5):
         super().__init__()
 
         print('Created spatial emb loss function with: center as: {}, n_sigma: {}'.format(
@@ -81,7 +81,7 @@ class SpatialEmbLoss(nn.Module):
                         xy_in = xym_s[in_mask.expand_as(xym_s)]
                         xy_in =xy_in.view(2,-1) #2xpixels
                         center = xy_in.mean(1).view(2, 1, 1)  # 2 x 1 x 1
-                    elif self.center == 'approximate-medoid':
+                    elif self.center == 'approximate_medoid':
                         xy_in = xym_s[in_mask.expand_as(xym_s)]
                         xy_in = xy_in.view(2, -1)
                         xy_median = torch.median(xy_in, dim=1)[0]

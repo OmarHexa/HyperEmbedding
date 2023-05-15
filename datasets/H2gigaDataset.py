@@ -39,7 +39,16 @@ def pixelwise_standardization(image):
     std = np.std(image, axis=-1, keepdims=True)
     # Perform normalization
     return (image - mean) / std
-
+def rank_norm(Data):
+    # Flatten each band into a 1D array
+    flat_data = Data.reshape(-1, Data.shape[-1])
+    # Compute the ranks of each value in each band
+    temp = flat_data.argsort(axis=-1)
+    ranks = np.empty_like(temp)
+    ranks[np.arange(temp.shape[0])[:, np.newaxis], temp] = np.arange(flat_data.shape[-1])
+    # Scale the rank values to [0, 1] range
+    return ranks.reshape(Data.shape) / (Data.shape[-1] - 1)
+     
 
 def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=1e-20, dtype=np.float32):
     """
@@ -94,7 +103,7 @@ class H2gigaDataset(Dataset):
 
     def __init__(self, root_dir='./', type="train", class_id=None, size=None, normalize=True, transform=None):
 
-        # print('`{}` dataset created! Accessing data from {}/{}/'.format(type, root_dir, type))
+        print('`{}` dataset created! Accessing data from {}/{}/'.format(type, root_dir, type))
 
         # get image and instance and class map list
         path = os.path.join(root_dir, '{}/'.format(type))
@@ -139,12 +148,12 @@ class H2gigaDataset(Dataset):
         image = io.imread(self.image_list[index])
         if image.shape[-1]==4:
             image = rgba2rgb(image)
-        hs = np.load(self.hs_list[index])
+        hs = np.load(self.hs_list[index])[...,10:]
         
             
         if self.normalize:
-            image = normalize_min_max(image)
-            hs = band_quertile_norm(hs)
+            # image = normalize_min_max(image)
+            hs = rank_norm(hs)
             
         
         # normalize image
