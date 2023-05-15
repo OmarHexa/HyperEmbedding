@@ -279,8 +279,8 @@ class ECA(nn.Module):
         # self.l2 = nn.Linear(mid_bottleneck, channels)
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
-        y1 = self.avg_pool(x).squeeze()
-        y2 = self.max_pool(x).squeeze()
+        y1 = self.avg_pool(x).squeeze(-1).squeeze(-1)
+        y2 = self.max_pool(x).squeeze(-1).squeeze(-1)
         # y1_att = self.l2(self.l1(y1))
         # y2_att = self.l2(self.l1(y2))
         y1_att = self.l1(y1)
@@ -290,16 +290,16 @@ class ECA(nn.Module):
 class BSA(nn.Module):
     def __init__(self,in_channel,out_channel=32) -> None:
         super().__init__()
-        self.m = out_channel//2
+        self.mid = out_channel//2
         self.attn = ECA(in_channel)
         self.conv = CBS(out_channel,out_channel,3,2)
     def forward(self,x):
-        score = torch.softmax(torch.sum(self.attn(x),dim=0),dim=0)
+        score = torch.mean(self.attn(x),dim=0)
         # score_id = torch.argsort(score,dim=0,descending=True)
         # max_id = score_id[:self.m].squeeze()
-        max_score, max_id = torch.topk(score, k=self.m, dim=0)
+        max_score, max_id = torch.topk(score, k=self.mid, dim=0)
         x1 = x[:, max_id.squeeze()]*max_score
-        x2 = self._groupchannels(x,self.m)
+        x2 = self._groupchannels(x,self.mid)
         x = self.conv(torch.cat((x1,x2),dim=1))
         return x
     def _groupchannels(self,input, m):
