@@ -51,14 +51,14 @@ class BranchedHyperNet(nn.Module):
         print('Creating branched hypernet with {} classes'.format(num_classes))
 
         if (encoder is None):
-            self.encoder = hypernet.RGBEncoder(in_channel)
+            self.encoder = hypernet.HyperEncoder(in_channel)
             
         else:
             self.encoder = encoder
 
         self.decoders = nn.ModuleList()
         for n in num_classes:
-            self.decoders.append(hypernet.HyperDecoder(n))
+            self.decoders.append(hypernet.HyperDecoder2(n))
 
     def init_output(self, n_sigma=1):
         with torch.no_grad():

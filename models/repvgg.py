@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 import torch
 from torch import nn
 from models.common import *
+# from common import *
 
 class RepVGGBlock(nn.Module):
     """
@@ -241,9 +242,8 @@ class RepBottleneckSG(Bottleneck):
         if attention:
             self.cv1 = RepVGGBlock(c1,c_,stride=1,groups=1,
                                    activation_type=activation_type,
-                                   se_type=LCA,se_kwargs={"channels":c1},
                                    use_residual_connection=False)
-            self.shuffle = nn.ChannelShuffle(g)
+            self.shuffle = ShuffleBlock(g)
             self.cv2 = RepVGGBlock(c_, c2, stride=1, groups=g,
                                     activation_type=activation_type,
                                    se_type=LCA,se_kwargs={"channels":c1},
@@ -252,20 +252,22 @@ class RepBottleneckSG(Bottleneck):
             self.cv1 = RepVGGBlock(c1,c_,stride=1,groups=g,
                                    activation_type=activation_type,
                                    use_residual_connection=False)
-            self.shuffle = nn.ChannelShuffle(g)
+            self.shuffle = ShuffleBlock(g)
             self.cv2 = RepVGGBlock(c_, c2, stride=1, groups=g,
                                    activation_type=activation_type,
                                    use_residual_connection=False)
     def forward(self, x):
         return x + self.cv2(self.shuffle(self.cv1(x))) if self.add else self.cv2((self.shuffle(self.cv1(x))))
+class ShuffleBlock(nn.Module):
+    def __init__(self, groups):
+        super(ShuffleBlock, self).__init__()
+        self.groups = groups
+    def forward(self, x):
+        '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
+        N,C,H,W = x.size()
+        g = self.groups
+        return x.view(N,g,C//g,H,W).permute(0,2,1,3,4).reshape(N,C,H,W)
         
-class RepBottleneckCSPA(BottleneckCSPA):
-    # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__(c1, c2, n, shortcut, g, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.m = nn.Sequential(*[RepBottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
-
 class RepC2f(C2f):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__(c1, c2, n, shortcut, g, e)

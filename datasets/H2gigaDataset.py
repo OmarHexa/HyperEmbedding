@@ -11,47 +11,36 @@ from sklearn.decomposition import PCA
 import torch
 from torch.utils.data import Dataset
 from scipy.ndimage import gaussian_filter
+from scipy.stats import rankdata
+
 
 def band_quertile_norm(Data):
     # Calculate the mean and standard deviation of each band across the hxw dimension
     q3, q2, q1 = np.percentile(Data, [75, 50, 25], axis=(0,1))
     iqr = (q3 - q1) * 1.35
     # Perform normalization
-    cube = (Data - q2) / iqr
-    return cube
+    return (Data - q2) / iqr
 
 def quertile_norm(image):
-
     # Calculate the mean and standard deviation of each pixel across the band dimension
     q3,q2,q1 = np.percentile(image,[75, 50, 25], axis=-1, keepdims=True)
     iqr = (q3-q1)/1.35
     # Perform normalization
-    norm = (image - q2) /iqr
-    return norm
+    return  (image - q2) /iqr
 
 def infinity_norm(Data):
     max = np.max(Data,axis=-1,keepdims=True)
     # Scale each pixel by its feature vector length
-    scaled_data = Data / max
-    return scaled_data
-def rank_norm(Data):
-    # Flatten each band into a 1D array
-    flat_data = Data.reshape(-1, Data.shape[-1])
-    # Compute the ranks of each value in each band
-    ranks = np.apply_along_axis(lambda x: rankdata(x, method='min'), axis=-1, arr=flat_data)
-    # Reshape the ranks back into a 3D array
-    rank_cube = ranks.reshape(Data.shape)
-    # Scale the rank values to [0,1] range
-    norm_cube = (rank_cube) / Data.shape[-1]
-    return norm_cube
+    return Data / max
+
 def pixelwise_standardization(image):
     # Calculate the mean and standard deviation of each pixel across the band dimension
     mean = np.mean(image, axis=-1, keepdims=True)
     std = np.std(image, axis=-1, keepdims=True)
     # Perform normalization
-    norm = (image - mean) / std
+    return (image - mean) / std
 
-    return norm
+
 def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=1e-20, dtype=np.float32):
     """
         Percentile-based image normalization.
@@ -150,19 +139,19 @@ class H2gigaDataset(Dataset):
         image = io.imread(self.image_list[index])
         if image.shape[-1]==4:
             image = rgba2rgb(image)
-        hs = np.load(self.hs_list[index])[10:]
+        hs = np.load(self.hs_list[index])
         
             
         if self.normalize:
             image = normalize_min_max(image)
-            hs = rank_norm(hs)
+            hs = band_quertile_norm(hs)
             
         
         # normalize image
         
         sample['image'] = image
         sample['im_name'] = self.image_list[index]
-        # sample['hs'] = hs
+        sample['hs'] = hs
         
         # load instances
         instance = io.imread(self.instance_list[index])

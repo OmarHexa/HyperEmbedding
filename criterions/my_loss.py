@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, center="medoid", n_sigma=2, class_weight=[1],num_class=5):
+    def __init__(self, center="centroid", n_sigma=2, class_weight=[1],num_class=5):
         super().__init__()
 
         print('Created spatial emb loss function with: center as: {}, n_sigma: {}'.format(

@@ -14,7 +14,7 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exprgb_coloraug',
+    save_dir='exp/hs_c2fa+centroid+bandquertilenorm+auxloss_BSAl1',
     resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
@@ -27,30 +27,30 @@ args = dict(
             'size': None,
             'normalize':True,
             'transform': my_transforms.get_transform([
-                 {
-                    'name': 'RandomRotationsAndFlips',
-                    'opts': {
-                        'keys': ('image', 'instance','label'),
-                        'degrees': 90,
-                    }
-                },
-                  {
-                    'name': 'ColorAugmentation',
-                    'opts': {
-                        'keys': ('image', 'instance', 'label'),
-                    }
-                },
+                #  {
+                #     'name': 'RandomRotationsAndFlips',
+                #     'opts': {
+                #         'keys': ('image', 'instance','label'),
+                #         'degrees': 90,
+                #     }
+                # },
+                #   {
+                #     'name': 'ColorAugmentation',
+                #     'opts': {
+                #         'keys': ('image', 'instance', 'label'),
+                #     }
+                # },
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image','instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 }
                 ]),
                 },
             
-            'batch_size': 20,
+            'batch_size': 12,
             'workers': 4,
         }, 
 
@@ -64,26 +64,26 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image','instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 },
                 ]),
                 },
-        'batch_size': 20,
+        'batch_size': 12,
         'workers': 4,
     }, 
 
     model = {
         'name': 'branched_hypernet', 
         'kwargs': {
-            'in_channel': 3,
+            'in_channel': 164,
             'num_classes': [4,5]
         }
     }, 
 
     lr=5e-4,
-    n_epochs=120,
+    n_epochs=50,
     grid_size=1024,
 
     # loss options

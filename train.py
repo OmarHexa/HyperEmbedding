@@ -33,8 +33,8 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     for i, sample in enumerate(tqdm(train_dataloader)):
 
-        # im = sample['hs'].to(device)
-        im = sample['image'].to(device)
+        im = sample['hs'].to(device)
+        # im = sample['image'].to(device)
 
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
@@ -64,8 +64,8 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
         for i, sample in enumerate(tqdm(val_dataloader)):
 
-            # im = sample['hs'].to(device)
-            im = sample['image'].to(device)
+            im = sample['hs'].to(device)
+            # im = sample['image'].to(device)
 
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
@@ -74,7 +74,7 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
             aux = criterion.module.auxiliary_loss(class_labels,features)
             loss = loss.mean()+(0.5*aux.mean())
-
+            # loss = loss.mean()
             loss_meter.update(loss.item())
             
         if args['save']:
@@ -176,7 +176,8 @@ def begin_trianing(args,device):
             shutil.copyfile(file_name, os.path.join(
                 args['save_dir'], 'best_iou_model.pth'))
 
-
+    
+    print(model.modules) #print modules for letter modules inspection
     for epoch in range(start_epoch, args['n_epochs']):
         
 

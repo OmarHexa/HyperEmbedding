@@ -250,8 +250,8 @@ class ChannelSampler(nn.Module):
         super().__init__()
         self.m = out_channel
         self.attn = SOECA(in_channel)
-        self.norm = nn.InstanceNorm2d(out_channel*2)
-        self.conv = CBS(out_channel*2,out_channel,3,2)
+        # self.norm = nn.InstanceNorm2d(out_channel*2)
+        self.conv = CBS(out_channel,out_channel,3,2)
     def forward(self,x):
         score = torch.mean(self.attn(x),dim=0)
         score_id = torch.argsort(score,dim=0)
@@ -269,6 +269,47 @@ class ChannelSampler(nn.Module):
             input = input[:,s:]
         output = input.view(b, m, g, h,w)
         output = torch.sum(output, axis=2)
+        return output
+class ECA(nn.Module):
+    def __init__(self, channels, mid_bottleneck=32):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))    
+        self.max_pool = nn.AdaptiveMaxPool2d((1,1))
+        self.l1 = nn.Linear(channels, channels)
+        # self.l2 = nn.Linear(mid_bottleneck, channels)
+        self.sigmoid = nn.Sigmoid()
+    def forward(self, x):
+        y1 = self.avg_pool(x).squeeze()
+        y2 = self.max_pool(x).squeeze()
+        # y1_att = self.l2(self.l1(y1))
+        # y2_att = self.l2(self.l1(y2))
+        y1_att = self.l1(y1)
+        y2_att = self.l1(y2)
+        attention = self.sigmoid(y1_att+y2_att).unsqueeze(-1).unsqueeze(-1)
+        return attention
+class BSA(nn.Module):
+    def __init__(self,in_channel,out_channel=32) -> None:
+        super().__init__()
+        self.m = out_channel//2
+        self.attn = ECA(in_channel)
+        self.conv = CBS(out_channel,out_channel,3,2)
+    def forward(self,x):
+        score = torch.softmax(torch.sum(self.attn(x),dim=0),dim=0)
+        # score_id = torch.argsort(score,dim=0,descending=True)
+        # max_id = score_id[:self.m].squeeze()
+        max_score, max_id = torch.topk(score, k=self.m, dim=0)
+        x1 = x[:, max_id.squeeze()]*max_score
+        x2 = self._groupchannels(x,self.m)
+        x = self.conv(torch.cat((x1,x2),dim=1))
+        return x
+    def _groupchannels(self,input, m):
+        b,c,h,w = input.shape
+        g = c//m
+        if c%m !=0:
+            s = c-(g*m) 
+            input = input[:,s:]
+        output = input.view(b, m, g, h,w)
+        output = torch.mean(output, dim=2)
         return output
     
 class Upsampler(nn.Module):
@@ -400,7 +441,23 @@ class C2f(nn.Module):
         y = list(self.cv1(x).chunk(2, 1))
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
-
+class C2FA(nn.Module):
+    # CSP Bottleneck with 2 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=1):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        self.c = int(c2 * 0.5)  # hidden channels
+        self.cv1 = CBS(c1, 2 * self.c, 1)
+        self.cv2 = CBS((2 + n) * self.c, c2, 1)
+        self.sa = LSA(7)
+        self.ca = LCA((2 + n) * self.c)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, k=3,g=g, e=e) for _ in range(n))
+    # @timing   
+    def forward(self, x):
+        y = self.sa(self.cv1(x))
+        y = list(y.chunk(2,1))
+        y.extend(m(y[-1]) for m in self.m)
+        y = self.ca(torch.cat(y, 1))
+        return self.cv2(y)
 class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, c1, c2, shortcut=True, g=1, k=3, e=0.5):  # ch_in, ch_out, shortcut, groups, kernels, expand
