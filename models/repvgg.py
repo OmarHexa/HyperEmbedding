@@ -249,7 +249,7 @@ class RepBottleneckSG(Bottleneck):
                                    se_type=LCA,se_kwargs={"channels":c1},
                                    use_residual_connection=False)
         else:
-            self.cv1 = RepVGGBlock(c1,c_,stride=1,groups=g,
+            self.cv1 = RepVGGBlock(c1,c_,stride=1,groups=1,
                                    activation_type=activation_type,
                                    use_residual_connection=False)
             self.shuffle = ShuffleBlock(g)
@@ -258,27 +258,32 @@ class RepBottleneckSG(Bottleneck):
                                    use_residual_connection=False)
     def forward(self, x):
         return x + self.cv2(self.shuffle(self.cv1(x))) if self.add else self.cv2((self.shuffle(self.cv1(x))))
-class ShuffleBlock(nn.Module):
-    def __init__(self, groups):
-        super(ShuffleBlock, self).__init__()
-        self.groups = groups
-    def forward(self, x):
-        '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
-        N,C,H,W = x.size()
-        g = self.groups
-        return x.view(N,g,C//g,H,W).permute(0,2,1,3,4).reshape(N,C,H,W)
+# class ShuffleBlock(nn.Module):
+#     def __init__(self, groups):
+#         super(ShuffleBlock, self).__init__()
+#         self.groups = groups
+#     def forward(self, x):
+#         '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
+#         N,C,H,W = x.size()
+#         g = self.groups
+#         return x.view(N,g,C//g,H,W).permute(0,2,1,3,4).reshape(N,C,H,W)
         
-class RepC2f(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.c = int(c2 * e)  # hidden channels
-        self.m = nn.ModuleList(RepBottleneck(self.c, self.c,shortcut,g=g) for _ in range(n))
+# class RepC2f(C2f):
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.c = int(c2 * e)  # hidden channels
+#         self.m = nn.ModuleList(RepBottleneck(self.c, self.c,shortcut,g=g) for _ in range(n))
 
-class RepC2fSG(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=4, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.c = int(c2 * e)  # hidden channels
-        self.m = nn.ModuleList(RepBottleneckSG(self.c, self.c,shortcut,g=g,attention=True) for _ in range(n))
+# class RepC2fSG(C2f):
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=4, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.c = int(c2 * e)  # hidden channels
+#         self.m = nn.ModuleList(RepBottleneckSG(self.c, self.c,shortcut,g=g,attention=True) for _ in range(n))
+
+# class RepC2FASG(C2FA):
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=4, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.m = nn.ModuleList(RepBottleneckSG(c1, c1,shortcut,g=g,attention=False) for _ in range(n))
 
 
 def fuse_conv_and_bn(conv, bn):

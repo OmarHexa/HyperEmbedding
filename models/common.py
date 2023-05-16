@@ -305,32 +305,45 @@ class SOCA(nn.Module):
         # Compute the channel attention weights
         return torch.sigmoid(self.linear(cov.squeeze())).view(-1,channels,1,1)
         
+# class BSA(nn.Module):
+#     def __init__(self,in_channel,out_channel=32) -> None:
+#         super().__init__()
+#         self.mid = out_channel
+#         self.attn = SOCA(in_channel)
+#         self.conv = CBS(out_channel,out_channel,3,2)
+#         self.align = STN(out_channel)
+#     def forward(self,x):
+#         score = torch.mean(self.attn(x),dim=0)
+#         score_id = torch.argsort(score, dim=0, descending=True).squeeze()
+#         max_id,_ = torch.sort(score_id[:self.mid],dim=0)
+#         # max_score, max_id = torch.topk(score, k=self.m, dim=0)
+#         x1 = x[:,max_id]*score[max_id]
+#         # x2 = self._groupchannels(x,self.mid)
+#         # x = self.conv(self.align(torch.cat((x1,x2),dim=1)))
+#         return self.conv(self.align(x1))
+    
+#     def _groupchannels(self,input, m):
+#         b,c,h,w = input.shape
+#         g = c//m
+#         if c%m !=0:
+#             s = c-(g*m) 
+#             input = input[:,s:]
+#         output = input.view(b, m, g, h,w)
+#         output = torch.mean(output, dim=2)
+#         return output
 class BSA(nn.Module):
     def __init__(self,in_channel,out_channel=32) -> None:
         super().__init__()
         self.mid = out_channel
-        self.attn = SOCA(in_channel)
+        self.chattn = SOCA(in_channel)
         self.conv = CBS(out_channel,out_channel,3,2)
-        self.align = STN(out_channel)
+        self.Triattn = TripletAttention()
     def forward(self,x):
-        score = torch.mean(self.attn(x),dim=0)
+        score = torch.mean(self.chattn(x),dim=0)
         score_id = torch.argsort(score, dim=0, descending=True).squeeze()
         max_id,_ = torch.sort(score_id[:self.mid],dim=0)
-        # max_score, max_id = torch.topk(score, k=self.m, dim=0)
-        x1 = x[:,max_id]*score[max_id]
-        # x2 = self._groupchannels(x,self.mid)
-        # x = self.conv(self.align(torch.cat((x1,x2),dim=1)))
-        return self.conv(self.align(x1))
-    
-    def _groupchannels(self,input, m):
-        b,c,h,w = input.shape
-        g = c//m
-        if c%m !=0:
-            s = c-(g*m) 
-            input = input[:,s:]
-        output = input.view(b, m, g, h,w)
-        output = torch.mean(output, dim=2)
-        return output
+        x1 = x[:,max_id]*(1+score[max_id])
+        return self.conv(self.Triattn(x1))
     
 class Upsampler(nn.Module):
     def __init__(self, in_channel, out_channel,mode ='Bilinear'):
@@ -449,28 +462,63 @@ class GLAM(nn.Module):
         output = self.weights[0]* Fl + self.weights[1]*Fg+self.weights[2]* input
         return output
         
+# class C2f(nn.Module):
+#     # CSP Bottleneck with 2 convolutions
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__()
+#         self.c = int(c2 * e)  # hidden channels
+#         self.cv1 = CBS(c1, 2 * self.c, 1)
+#         self.cv2 = CBS((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+#         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=3, e=0.5) for _ in range(n))
+#     def forward(self, x):
+#         y = list(self.cv1(x).chunk(2, 1))
+#         y.extend(m(y[-1]) for m in self.m)
+#         return self.cv2(torch.cat(y, 1))
+# class C2FA(nn.Module):
+#     # CSP Bottleneck with 2 convolutions
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=1):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__()
+#         self.c = int(c2 * 0.5)  # hidden channels
+#         self.cv1 = CBS(c1, 2 * self.c, 1)
+#         self.cv2 = CBS((2 + n) * self.c, c2, 1)
+#         self.sa = LSA(7)
+#         self.ca = LCA((2 + n) * self.c)
+#         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, k=3,g=g, e=e) for _ in range(n))
+#     # @timing   
+#     def forward(self, x):
+#         y = self.sa(self.cv1(x))
+#         y = list(y.chunk(2,1))
+#         y.extend(m(y[-1]) for m in self.m)
+#         y = self.ca(torch.cat(y, 1))
+#         return self.cv2(y)
 class C2f(nn.Module):
     # CSP Bottleneck with 2 convolutions
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+    def __init__(self, c1, c2, n=3, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = CBS(c1, 2 * self.c, 1)
-        self.cv2 = CBS((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=3, e=0.5) for _ in range(n))
+        self.cv1 = CBS(c1, 2 * c1, 1)
+        self.cv2 = CBS((2 + n) * c1, c2, 1)  
+        self.m = nn.ModuleList(Bottleneck(c1, c1, shortcut, k=3,g=g, e=e) for _ in range(n))
     def forward(self, x):
         y = list(self.cv1(x).chunk(2, 1))
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
+    
+class C2fSG(C2f):
+    # CSP Bottleneck with 2 convolutions
+    def __init__(self, c1, c2, n=3, shortcut=False, g=4, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__(c1,c2,n,shortcut,g,e)
+        self.m = nn.ModuleList(BottleneckSG(c1, c1, shortcut, k=3,g=g, e=e) for _ in range(n))
+
+
 class C2FA(nn.Module):
     # CSP Bottleneck with 2 convolutions
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=1):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
-        self.c = int(c2 * 0.5)  # hidden channels
-        self.cv1 = CBS(c1, 2 * self.c, 1)
-        self.cv2 = CBS((2 + n) * self.c, c2, 1)
+        self.cv1 = CBS(c1, 2 * c1, 1)
+        self.cv2 = CBS((2 + n) * c1, c2, 1)
         self.sa = LSA(7)
-        self.ca = LCA((2 + n) * self.c)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, k=3,g=g, e=e) for _ in range(n))
+        self.ca = LCA((2 + n) * c1)
+        self.m = nn.ModuleList(Bottleneck(c1, c1, shortcut, k=3,g=g, e=e) for _ in range(n))
     # @timing   
     def forward(self, x):
         y = self.sa(self.cv1(x))
@@ -489,7 +537,26 @@ class Bottleneck(nn.Module):
 
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
-    
+class BottleneckSG(nn.Module):
+    # Standard bottleneck
+    def __init__(self, c1, c2, shortcut=True, k=3, g=4, e=0.5):  # ch_in, ch_out, shortcut, groups, kernels, expand
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = CBS(c1, c_, k,group=1)
+        self.shuffle = ShuffleBlock(g)
+        self.cv2 = CBS(c_, c2, k,group=g)
+        self.add = shortcut and c1 == c2
+    def forward(self, x):
+        return x + self.cv2(self.shuffle(self.cv1(x))) if self.add else self.cv2(self.shuffle(self.cv1(x)))
+class ShuffleBlock(nn.Module):
+    def __init__(self, groups):
+        super(ShuffleBlock, self).__init__()
+        self.groups = groups
+    def forward(self, x):
+        '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
+        N,C,H,W = x.size()
+        g = self.groups
+        return x.view(N,g,C//g,H,W).permute(0,2,1,3,4).reshape(N,C,H,W)        
 class GhostConv(nn.Module):
     # Ghost Convolution https://github.com/huawei-noah/ghostnet
     def __init__(self, c1, c2, k=1, s=1, g=1, act=True):  # ch_in, ch_out, kernel, stride, groups
@@ -576,4 +643,38 @@ class STN(nn.Module):
         theta = theta.view(-1, 2, 3)
         grid = F.affine_grid(theta, x.size(),align_corners=True)
         return F.grid_sample(x, grid,align_corners=True)
-    
+class AttentionGate(nn.Module):
+    def __init__(self):
+        super(AttentionGate, self).__init__()
+        kernel_size = 7
+        self.compress = ZPool()
+        self.conv = CBS(2, 1, kernel_size)
+    def forward(self, x):
+        x_compress = self.compress(x)
+        x_out = self.conv(x_compress)
+        scale = torch.sigmoid_(x_out) 
+        return x * scale
+class ZPool(nn.Module):
+    def forward(self, x):
+        return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 )
+class TripletAttention(nn.Module):
+    def __init__(self, no_spatial=False):
+        super(TripletAttention, self).__init__()
+        self.cw = AttentionGate()
+        self.hc = AttentionGate()
+        self.no_spatial=no_spatial
+        if not no_spatial:
+            self.hw = AttentionGate()
+    def forward(self, x):
+        x_perm1 = x.permute(0,2,1,3).contiguous()
+        x_out1 = self.cw(x_perm1)
+        x_out11 = x_out1.permute(0,2,1,3).contiguous()
+        x_perm2 = x.permute(0,3,2,1).contiguous()
+        x_out2 = self.hc(x_perm2)
+        x_out21 = x_out2.permute(0,3,2,1).contiguous()
+        if not self.no_spatial:
+            x_out = self.hw(x)
+            x_out = 1/3 * (x_out + x_out11 + x_out21)
+        else:
+            x_out = 1/2 * (x_out11 + x_out21)
+        return x_out

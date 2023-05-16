@@ -58,7 +58,7 @@ class BranchedHyperNet(nn.Module):
 
         self.decoders = nn.ModuleList()
         for n in num_classes:
-            self.decoders.append(hypernet.HyperDecoder2(n))
+            self.decoders.append(hypernet.HyperDecoder(n))
 
     def init_output(self, n_sigma=1):
         with torch.no_grad():

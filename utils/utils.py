@@ -314,7 +314,7 @@ class Visualizer:
         
         prediction = torch.zeros_like(vec_x)
         for i in range(self.num_class):
-            temp =torch.sigmoid(output[i+4])>0.7
+            temp =torch.sigmoid(output[i+4])>0.5
             prediction[temp] =i+1
         prediction = torch.from_numpy(self.label2colormap(prediction.numpy())).permute(2,0,1)
         offset = offset*255
