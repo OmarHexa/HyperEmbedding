@@ -11,7 +11,7 @@ from torchvision.transforms import functional as F
 from torchvision.transforms import transforms as T
 
 import torch
-import albumentations as A
+# import albumentations as A
 from skimage.util import img_as_ubyte,img_as_float32
 
 

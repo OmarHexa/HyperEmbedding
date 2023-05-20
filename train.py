@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 import torch
 import train_config
-from criterions.my_loss import SpatialEmbLoss
+from criterions.my_loss import SpatialEmbLoss,FocalLoss, MulticlassLoss
 from datasets import get_dataset
 from models import get_model
 from utils.utils import AverageMeter, Cluster, Logger , Visualizer
@@ -19,6 +19,219 @@ from torchvision.utils import make_grid
 from skimage import io
 from skimage.color import label2rgb
 import numpy as np
+from models.BranchedERFNet import Discriminator
+from models.hypernet import HyperNet
+import torch.nn.functional as F
+
+def trainUDA(model,discriminator,optimizer,criterion,domain_loss, source_loader,target_loader,device,epoch,n_epoch):
+     # define meters
+    loss_meter,aux_meter,domain_meter = AverageMeter(), AverageMeter(),AverageMeter()
+    # put model into training mode
+    model.train()
+        
+    for param_group in optimizer.param_groups:
+        print('learning rate: {}'.format(param_group['lr']))
+        
+    target_iter = iter(target_loader)
+    len_loader = len(source_loader)
+    
+    for i, sample_src in enumerate(tqdm(source_loader)):
+        p = float(i + epoch * len_loader) / n_epoch / len_loader
+        alpha = 2. / (1. + np.exp(-10 * p)) - 1
+        # training model using source data
+        s_img =  sample_src['hs'].to(device)
+        # s_inst = sample_src['instance'].squeeze().to(device)
+        s_label = sample_src['label'].squeeze().to(device)
+        #create source domain label
+        batch_size = s_img.size(0)
+        domain_label = torch.zeros(batch_size)
+        domain_label = domain_label.long().to(device)
+        # forward source data
+        output,F = model(s_img)
+        domain_out = discriminator(F[0],alpha)
+        
+        
+        emb_loss = criterion(output,s_label)
+        aux = criterion.module.auxiliary_loss(s_label,F[0]) 
+                # +(0.5*criterion.module.auxiliary_loss(s_label,F[1]))\
+                # +(0.25*criterion.module.auxiliary_loss(s_label,F[2]))
+               
+        src_loss = emb_loss.mean()+aux.mean()
+        src_domain_loss = domain_loss(domain_out,domain_label)
+        
+        # training model using target data
+        try:
+            sample_target = next(target_iter)
+        except StopIteration:
+            target_iter = iter(target_loader)
+            sample_target = next(target_iter)
+            
+        t_img = sample_target["hs"].to(device)
+        batch_size = t_img.size(0)
+        
+        domain_label = torch.ones(batch_size)
+        domain_label = domain_label.long().to(device)
+        
+        F = model(t_img,only_encode=True)
+        domain_out = discriminator(F[0],alpha)
+        target_domain_loss = domain_loss(domain_out,domain_label)
+        
+        loss = src_loss+src_domain_loss.mean()+target_domain_loss.mean()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        domloss = src_domain_loss.mean()+target_domain_loss.mean()
+        loss_meter.update(loss.item())
+        domain_meter.update(domloss.item())
+        aux_meter.update(aux.item())
+    return loss_meter.avg, aux_meter.avg, domain_meter.avg
+def valUDA(args,model,criterion, source_loader,target_loader,visualizer,device,epoch):
+     # define meters
+    loss_meter_src,loss_meter_target = AverageMeter(), AverageMeter()
+    
+    
+    # assert len(source_loader)>=len(target_loader)
+    # put model into training mode
+    model.eval()
+    
+    target_iter = iter(target_loader)
+    with torch.no_grad():
+        for i, sample_src in enumerate(tqdm(source_loader)):
+
+             # training model using source data
+            s_img =  sample_src['hs'].to(device)
+            s_label = sample_src['label'].squeeze().to(device)
+            #create source domain label
+            batch_size = s_img.size(0)
+            domain_label = torch.zeros(batch_size)
+            domain_label = domain_label.long().to(device)
+            # forward source data
+            output_s,F = model(s_img)
+
+            emb_loss = criterion(output_s, s_label)
+            aux = criterion.module.auxiliary_loss(s_label,F[0]) 
+                # +(0.5*criterion.module.auxiliary_loss(s_label,F[1]))\
+                # +(0.25*criterion.module.auxiliary_loss(s_label,F[2]))
+            src_loss = emb_loss.mean()+aux.mean()
+            loss_meter_src.update(src_loss.item())
+            
+            
+            # validate model using target data
+            try:
+                sample_target = next(target_iter)
+            except StopIteration:
+                target_iter = iter(target_loader)
+                sample_target = next(target_iter)
+            t_img = sample_target["hs"].to(device)
+            t_label = sample_target['label'].squeeze().to(device)
+            
+            
+            batch_size = t_img.size(0)
+            domain_label = torch.ones(batch_size)
+            domain_label = domain_label.long().to(device)
+        
+            output_t,F = model(t_img)
+            emb_loss = criterion(output_t, t_label)
+            aux = criterion.module.auxiliary_loss(t_label,F[0]) 
+                # +(0.5*criterion.module.auxiliary_loss(t_label,F[1]))\
+                # +(0.25*criterion.module.auxiliary_loss(t_label,F[2]))
+        
+            target_loss = emb_loss.mean()+aux.mean()
+            loss_meter_target.update(target_loss.item())
+        if args['save']:
+            t_image = sample_target['image'][0]
+            t_image = (t_image *255)
+            s_image = sample_src['image'][0]
+            s_image = (s_image *255)
+                
+            base_t, _ = os.path.splitext(os.path.basename(sample_target['im_name'][0]))
+            name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+"_"+base_t+'.png')   
+                             
+                
+            pred_t = visualizer.prepare_segment(output_t[0].cpu())
+            pred_s = visualizer.prepare_segment(output_s[0].cpu())
+                
+            grid = make_grid([s_image,pred_s,t_image,pred_t],nrow=2)
+            grid = grid.permute(1,2,0).numpy()
+            io.imsave(name,grid)
+    return loss_meter_src.avg, loss_meter_target.avg
+    
+# def valUDA(args,model,criterion, source_loader,target_loader,visualizer,device,epoch):
+#      # define meters
+#     loss_meter_src, iou_meter_src = AverageMeter(), AverageMeter()
+#     loss_meter_target,iou_meter_target = AverageMeter(), AverageMeter()
+    
+    
+#     # assert len(source_loader)>=len(target_loader)
+#     # put model into training mode
+#     model.eval()
+    
+#     target_iter = iter(target_loader)
+#     with torch.no_grad():
+#         for i, sample_src in enumerate(tqdm(source_loader)):
+
+#              # training model using source data
+#             s_img =  sample_src['hs'].to(device)
+#             s_inst = sample_src['instance'].squeeze().to(device)
+#             s_label = sample_src['label'].squeeze().to(device)
+#             #create source domain label
+#             batch_size = s_img.size(0)
+#             domain_label = torch.zeros(batch_size)
+#             domain_label = domain_label.long().to(device)
+#             # forward source data
+#             output,F = model(s_img)
+
+#             emb_loss = criterion(output,s_inst, s_label, iou=True, iou_meter=iou_meter_src)
+#             aux1 = criterion.module.auxiliary_loss(s_label,F[0])
+#             aux2 = criterion.module.auxiliary_loss(s_label,F[1])
+#             aux3 = criterion.module.auxiliary_loss(s_label,F[2])
+#             src_loss = emb_loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
+#             loss_meter_src.update(src_loss.item())
+            
+            
+#             # validate model using target data
+#             try:
+#                 sample_target = next(target_iter)
+#             except StopIteration:
+#                 target_iter = iter(target_loader)
+#                 sample_target = next(target_iter)
+#             t_img = sample_target["hs"].to(device)
+#             t_inst = sample_target['instance'].squeeze().to(device)
+#             t_label = sample_target['label'].squeeze().to(device)
+            
+            
+#             batch_size = t_img.size(0)
+#             domain_label = torch.ones(batch_size)
+#             domain_label = domain_label.long().to(device)
+        
+#             output,F = model(t_img)
+#             emb_loss = criterion(output,t_inst, t_label, iou=True, iou_meter=iou_meter_target)
+#             aux1 = criterion.module.auxiliary_loss(t_label,F[0])
+#             aux2 = criterion.module.auxiliary_loss(t_label,F[1])
+#             aux3 = criterion.module.auxiliary_loss(t_label,F[2])
+        
+#             target_loss = emb_loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
+#             loss_meter_target.update(target_loss.item())
+            
+#         if args['save']:
+#             image = sample_target['image'][0]
+#             image = (image.numpy() *255).transpose(1,2,0)
+#             labels = t_label[0].cpu().numpy()
+                
+#             base, _ = os.path.splitext(os.path.basename(sample_target['im_name'][0]))
+#             name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+base+'.png')
+#             labels = visualizer.label2colormap(labels)
+#             gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
+                
+                
+#             offset, sigma,pred = visualizer.prepare_internal(output=output[0].cpu())
+                
+#             grid = make_grid([gt,pred,offset,sigma],nrow=2)
+#             grid = grid.permute(1,2,0).numpy()
+#             io.imsave(name,grid)
+#     return loss_meter_src.avg, iou_meter_src.avg, loss_meter_target.avg, iou_meter_target.avg
+ 
 
 
 def train(args,model,optimizer,criterion,train_dataloader,device):
@@ -39,10 +252,13 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
-        output,features = model(im)
-        loss = criterion(output,instances, class_labels)
-        aux = criterion.module.auxiliary_loss(class_labels,features)
-        loss = loss.mean()+(0.5*aux.mean())
+        output,F = model(im)
+        loss = criterion(output,instances, class_labels) 
+        aux1 = criterion.module.auxiliary_loss(class_labels,F[0])
+        aux2 = criterion.module.auxiliary_loss(class_labels,F[1])
+        aux3 = criterion.module.auxiliary_loss(class_labels,F[2])
+        
+        loss = loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
         # loss = loss.mean()
 
         optimizer.zero_grad()
@@ -70,10 +286,12 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
-            output,features = model(im)
+            output,F = model(im)
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
-            aux = criterion.module.auxiliary_loss(class_labels,features)
-            loss = loss.mean()+(0.5*aux.mean())
+            aux1 = criterion.module.auxiliary_loss(class_labels,F[0])
+            aux2 = criterion.module.auxiliary_loss(class_labels,F[1])
+            aux3 = criterion.module.auxiliary_loss(class_labels,F[2])
+            loss = loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
             # loss = loss.mean()
             loss_meter.update(loss.item())
             
@@ -86,8 +304,7 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
             labels = visualizer.label2colormap(labels)
             gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
-                
-                
+
             offset, sigma,pred = visualizer.prepare_internal(output=output[0].cpu())
                 
             grid = make_grid([gt,pred,offset,sigma],nrow=2)
@@ -208,7 +425,130 @@ def begin_trianing(args,device):
                 'logger_data': logger.data
                     }
             save_checkpoint(state, is_best)
+def begin_trianing_with_UDA(args,device):
+    torch.backends.cudnn.benchmark = True
 
+
+# train dataloader
+    src_train_dataset = get_dataset(args['train_dataset']['name'], args['train_dataset']['kwargs'])
+    src_train_dataloader = torch.utils.data.DataLoader(
+                                    src_train_dataset,
+                                    batch_size=args['train_dataset']['batch_size'],
+                                    shuffle=True,
+                                    drop_last=True,
+                                    num_workers=args['train_dataset']['workers'])
+
+# val dataloader
+    src_val_dataset = get_dataset(args['val_dataset']['name'], args['val_dataset']['kwargs'])
+    src_val_dataloader = torch.utils.data.DataLoader(
+                                    src_val_dataset,
+                                    batch_size=args['val_dataset']['batch_size'],
+                                    shuffle=True,
+                                    drop_last=True,
+                                    num_workers=args['train_dataset']['workers'])
+# target dataloader
+    target_train_dataset = get_dataset(args['target_train_dataset']['name'], args['target_train_dataset']['kwargs'])
+    target_train_dataloader = torch.utils.data.DataLoader(
+                                    target_train_dataset,
+                                    batch_size=args['target_train_dataset']['batch_size'],
+                                    shuffle=True,
+                                    drop_last=True,
+                                    num_workers=args['target_train_dataset']['workers'])
+    target_val_dataset = get_dataset(args['target_val_dataset']['name'], args['target_val_dataset']['kwargs'])
+    target_val_dataloader = torch.utils.data.DataLoader(
+                                    target_val_dataset,
+                                    batch_size=args['target_val_dataset']['batch_size'],
+                                    shuffle=True,
+                                    drop_last=True,
+                                    num_workers=args['target_val_dataset']['workers'])
+
+
+# set model
+    # set model
+    model = HyperNet(**args['model']['kwargs'])
+    # model.init_output(args['loss_opts']['n_sigma'])
+    discriminator = Discriminator()
+    
+    model = torch.nn.DataParallel(model).to(device)
+    discriminator = torch.nn.DataParallel(discriminator).to(device)
+    
+
+# set criterion
+    # criterion = FocalLoss(weight=torch.FloatTensor(args["weights"]))
+    criterion = MulticlassLoss()
+    
+    domain_loss = torch.nn.NLLLoss()
+    criterion = torch.nn.DataParallel(criterion).to(device)
+    domain_loss = torch.nn.DataParallel(domain_loss).to(device)
+# set optimizer
+    optimizer = torch.optim.Adam(list(discriminator.parameters()) + list(model.parameters()), lr=args['lr'], weight_decay=1e-4)
+
+
+    def lambda_(epoch):
+        return pow((1-((epoch)/args['n_epochs'])), 0.9)
+
+    # Logger
+    logger = Logger(('trainMain',"trainAux","trainDomain", 'valSrc', 'valTarget'), 'loss')
+    
+    #visualizer
+    visualizer = Visualizer(args)
+
+    # resume
+    start_epoch = 0
+    best_target = 0
+    if args['resume_path'] is not None and os.path.exists(args['resume_path']):
+        print('Resuming model from {}'.format(args['resume_path']))
+        state = torch.load(args['resume_path'])
+        start_epoch = state['epoch'] + 1
+        best_target = state['best_target']
+        model.load_state_dict(state['model_state_dict'], strict=True)
+        logger.data = state['logger_data']
+
+
+    def save_checkpoint(state,model, is_best, name='checkpoint.pth'):
+        print('=> saving checkpoint')
+        file_name = os.path.join(args['save_dir'], name)
+        torch.save(state, file_name)
+        if is_best:
+            shutil.copyfile(file_name, os.path.join(
+                args['save_dir'], 'best_target_model.pth'))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_,)
+    for epoch in range(start_epoch, args['n_epochs']):
+        
+
+        print('Starting epoch {}'.format(epoch))
+        train_mloss,train_auxloss,train_domloss = trainUDA(model,discriminator,optimizer,criterion,
+                                                    domain_loss,src_train_dataloader,target_train_dataloader,
+                                                    device,epoch, args['n_epochs'])
+        src_valloss,target_valloss = valUDA(args,model,criterion,src_val_dataloader,target_train_dataloader,
+                                            visualizer,device,epoch=epoch)
+        scheduler.step()
+        
+        
+
+        print('===> train loss: {:.2f}'.format(train_mloss))
+        print('===> val loss: {:.2f}, target loss: {:.2f}'.format(src_valloss, target_valloss))
+
+        logger.add('trainMain', train_mloss)
+        logger.add('trainAux', train_auxloss)
+        logger.add('trainDomain', train_domloss)
+        logger.add('valSrc', src_valloss)
+        logger.add('valTarget', target_valloss)
+        logger.plot(save=args['save'], save_dir=args['save_dir'])
+
+        is_best = target_valloss > best_target
+        best_target = max(target_valloss, best_target)
+
+        if args['save']:
+            state = {
+                'epoch': epoch,
+                'best_target': best_target,
+                'model_state_dict': model.state_dict(),
+                'optim_state_dict': optimizer.state_dict(),
+                'logger_data': logger.data
+                    }
+            save_checkpoint(state, model, is_best)
 
 if __name__=="__main__":
     args =train_config.get_args()
@@ -220,4 +560,4 @@ if __name__=="__main__":
     print('Using device:', device)
     for i in range(torch.cuda.device_count()):
         print(torch.cuda.get_device_name(i))
-    begin_trianing(args,device=device)
+    begin_trianing_with_UDA(args,device=device)

@@ -212,39 +212,123 @@ def cosine_similarity(x1, x2=None, eps=1e-8):
     return torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
 
 
-def DiceBceLoss(inputs, targets, smooth=1):      
+# def DiceBceLoss(inputs, targets, smooth=1):      
         
-        #flatten label and prediction tensors
-    inputs = inputs.view(-1)
-    targets = targets.view(-1)
+#         #flatten label and prediction tensors
+#     inputs = inputs.view(-1)
+#     targets = targets.view(-1)
         
         
-    intersection = (inputs * targets).sum()                            
-    dice_loss = 1 - (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
-    BCE = nn.functional.binary_cross_entropy(inputs, targets, reduction='mean')
-    Dice_BCE = BCE + dice_loss
+#     intersection = (inputs * targets).sum()                            
+#     dice_loss = 1 - (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
+#     BCE = nn.functional.binary_cross_entropy(inputs, targets, reduction='mean')
+#     Dice_BCE = BCE + dice_loss
         
-    return Dice_BCE
+#     return Dice_BCE
 
-class DiceBceLossMulti(nn.Module):
-    def __init__(self, num_class=5, class_weight=None):
-        super().__init__()
-        self.class_id = list(range(1,num_class+1))
-        self.class_weight = class_weight
-    def forward(self,prediction, labels, iou=False, iou_meter=None):
-        batch_size = prediction.size(0)
-        loss =0
-        for b in range(batch_size):
-            label = labels[b]
-            for id, cl in enumerate(self.class_id):
-                pred = prediction[b,id]
-                gt = label.eq(cl).type(torch.float)  
-                loss+= DiceBceLoss(pred,gt)
-                # calculate instance iou
-                if iou:
-                    iou_meter.update(calculate_iou(pred > 0.5, gt))
+# class DiceBceLossMulti(nn.Module):
+#     def __init__(self, num_class=5, class_weight=None):
+#         super().__init__()
+#         self.class_id = list(range(1,num_class+1))
+#         self.class_weight = class_weight
+#     def forward(self,prediction, labels, iou=False, iou_meter=None):
+#         batch_size = prediction.size(0)
+#         loss =0
+#         for b in range(batch_size):
+#             label = labels[b]
+#             for id, cl in enumerate(self.class_id):
+#                 pred = prediction[b,id]
+#                 gt = label.eq(cl).type(torch.float)  
+#                 loss+= DiceBceLoss(pred,gt)
+#                 # calculate instance iou
+#                 if iou:
+#                     iou_meter.update(calculate_iou(pred > 0.5, gt))
+#         return loss
+    
+    
+class MulticlassLoss(torch.nn.Module):
+    def __init__(self, weight=None):
+        super(MulticlassLoss, self).__init__()
+        self.nll_loss = torch.nn.NLLLoss(weight)
+        
+    def forward(self, inputs, targets):
+        targets = targets.long()
+        log_p = torch.nn.functional.log_softmax(inputs, dim=1)
+        loss = self.nll_loss(log_p, targets)
         return loss
+    def auxiliary_loss(self,labels, features,margin=10,weight=0.5):
+        b,c,h,w = features.shape
+        # Resize the label to match the feature array size
+        labels = F.interpolate(labels.float().unsqueeze(1),size=(h,w),mode='nearest').long()  # size: (H/8, W/8)
+        # Extract the unique classes in the label
+        num_class = torch.unique(labels)  # size: (num_classes,)
+        intra_losses = []
+        features = features.permute(0,2,3,1).reshape(-1,c) #size: (B*H*W,C) 
+        # Compute the mean feature vector for each class
+        mean_vectors = torch.zeros((num_class.shape[0], c),device= features.device)  # size: (batch_size, num_classes, C)
+        for i, class_idx in enumerate(num_class):
+            mask = labels == class_idx
+            masked_features = features[mask.view(-1)]
+            # masked_features = features[mask.expand_as(features)].reshape(-1, c)
+            mean_vectors[i] = torch.mean(masked_features,dim=0)  # size: (batch_size, C)
+            # dist = 1-cosine_similarity(masked_features, mean_vectors[i].repeat(masked_features.shape[0], 1))
+            dist = 1 - F.cosine_similarity(masked_features, mean_vectors[i].clone(), dim=1)
+            intra_losses.append(dist.mean())
+        # Compute the intra-class loss
+        intra_loss = torch.stack(intra_losses).mean()
+        class_sim =torch.triu(cosine_similarity(mean_vectors),diagonal=1)
+        inter_loss = class_sim[class_sim>0].sum()/len(num_class)
 
+        
+        loss = inter_loss+intra_loss
+        return loss
+class FocalLoss(torch.nn.Module):
+    '''
+    Multi-class Focal Loss
+    '''
+    def __init__(self, gamma=2, weight=None):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.weight = weight
+
+    def forward(self, input, target):
+        """
+        input: [N, C], float32
+        target: [N, ], int64
+        """
+        target = target.long()
+        self.weight = self.weight.to(input.device)
+        logpt = torch.nn.functional.log_softmax(input, dim=1)
+        pt = torch.exp(logpt)
+        logpt = (1-pt)**self.gamma * logpt
+        loss = torch.nn.functional.nll_loss(logpt, target, self.weight)
+        return loss
+    def auxiliary_loss(self,labels, features,margin=10,weight=0.5):
+        b,c,h,w = features.shape
+        # Resize the label to match the feature array size
+        labels = F.interpolate(labels.float().unsqueeze(1),size=(h,w),mode='nearest').long()  # size: (H/8, W/8)
+        # Extract the unique classes in the label
+        num_class = torch.unique(labels)  # size: (num_classes,)
+        intra_losses = []
+        features = features.permute(0,2,3,1).reshape(-1,c) #size: (B*H*W,C) 
+        # Compute the mean feature vector for each class
+        mean_vectors = torch.zeros((num_class.shape[0], c),device= features.device)  # size: (batch_size, num_classes, C)
+        for i, class_idx in enumerate(num_class):
+            mask = labels == class_idx
+            masked_features = features[mask.view(-1)]
+            # masked_features = features[mask.expand_as(features)].reshape(-1, c)
+            mean_vectors[i] = torch.mean(masked_features,dim=0)  # size: (batch_size, C)
+            # dist = 1-cosine_similarity(masked_features, mean_vectors[i].repeat(masked_features.shape[0], 1))
+            dist = 1 - F.cosine_similarity(masked_features, mean_vectors[i].clone(), dim=1)
+            intra_losses.append(dist.mean())
+        # Compute the intra-class loss
+        intra_loss = torch.stack(intra_losses).mean()
+        class_sim =torch.triu(cosine_similarity(mean_vectors),diagonal=1)
+        inter_loss = class_sim[class_sim>0].sum()/len(num_class)
+
+        
+        loss = inter_loss+intra_loss
+        return loss
 
 if __name__ == "__main__":
     input = torch.randn(1, 5, 416, 416)

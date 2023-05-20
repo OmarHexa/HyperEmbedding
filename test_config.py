@@ -7,7 +7,7 @@ import copy
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='../Data/augmented_old/H2giga/'
+H2GIGA_DIR='../Data'
 
 
 args = dict(
@@ -16,22 +16,22 @@ args = dict(
     display=True,
 
     save=True,
-    save_dir='./test_coloraugment',
-    checkpoint_path='./exprgb_auxloss_mediod/checkpoint.pth',
+    save_dir='./test/hs_RN+3AUX+c2fg+Triattn',
+    checkpoint_path='exp/hs_RN+3AUX+c2fg+Triattn/checkpoint.pth',
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     dataset= { 
         'name': 'H2giga',
         'kwargs': {
             'root_dir': H2GIGA_DIR,
-            'type': 'test',
+            'type': '20220715',
             'class_id': None,            
             'transform': my_transforms.get_transform([
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image','instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                        'keys': ('image','hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                     }
                 },
             ]),
@@ -41,7 +41,7 @@ args = dict(
     model = {
         'name': 'branched_hypernet',
         'kwargs': {
-            'in_channel': 3,
+            'in_channel': 154,
             'num_classes': [4, 5],
         }
     }

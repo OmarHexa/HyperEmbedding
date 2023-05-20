@@ -92,15 +92,16 @@ def split_train_val(data_dir, project_name, subset=0.15, by_fraction=True, seed=
     """
     
     #collect directory name of all data
-    RGB_dir = os.path.join(data_dir, project_name, 'RGB')
-    HS_dir = os.path.join(data_dir,project_name,'HS')
-    classmap_dir = os.path.join(data_dir,project_name,'Classmaps')
-    instance_dir = os.path.join(data_dir, project_name, 'Instances')
+    RGB_dir = os.path.join(data_dir, project_name, 'images')
+    HS_dir = os.path.join(data_dir,project_name,'hs')
+    classmap_dir = os.path.join(data_dir,project_name,'classmaps')
+    instance_dir = os.path.join(data_dir, project_name, 'instances')
     
     print(classmap_dir)
     
-    HS_names = sorted(glob(os.path.join(HS_dir, '*.cue')))
-    HSheader_names = sorted(glob(os.path.join(HS_dir, '*.hdr')))
+    # HS_names = sorted(glob(os.path.join(HS_dir, '*.cue')))
+    # HSheader_names = sorted(glob(os.path.join(HS_dir, '*.hdr')))
+    HS_names = sorted(glob(os.path.join(HS_dir, '*.npy')))
     RGB_names = sorted(glob(os.path.join(RGB_dir, '*.png')))
     classmap_names = sorted(glob(os.path.join(classmap_dir, '*.png')))
     instance_names = sorted(glob(os.path.join(instance_dir, '*.png')))
@@ -132,8 +133,8 @@ def split_train_val(data_dir, project_name, subset=0.15, by_fraction=True, seed=
             data_dir, project_name, 'val', 'classmaps'))
         shutil.copy(HS_names[val_index], os.path.join(
             data_dir, project_name, 'val', 'hs'))
-        shutil.copy(HSheader_names[val_index], os.path.join(
-            data_dir, project_name, 'val', 'hs'))
+        # shutil.copy(HSheader_names[val_index], os.path.join(
+        #     data_dir, project_name, 'val', 'hs'))
 
     for trainIndex in trainIndices:
         shutil.copy(RGB_names[trainIndex], os.path.join(
@@ -144,8 +145,8 @@ def split_train_val(data_dir, project_name, subset=0.15, by_fraction=True, seed=
             data_dir, project_name, 'train', 'classmaps'))
         shutil.copy(HS_names[trainIndex], os.path.join(
             data_dir, project_name, 'train', 'hs'))
-        shutil.copy(HSheader_names[trainIndex], os.path.join(
-            data_dir, project_name, 'train', 'hs'))
+        # shutil.copy(HSheader_names[trainIndex], os.path.join(
+        #     data_dir, project_name, 'train', 'hs'))
 
 def convert_rgb2catagory(img,classMap=False):
         color_map = {0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)}
