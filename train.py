@@ -388,7 +388,7 @@ def begin_trianing(args,device):
         start_epoch = state['epoch'] + 1
         best_iou = state['best_iou']
         model.load_state_dict(state['model_state_dict'], strict=True)
-        optimizer.load_state_dict(state['optim_state_dict'])
+        # optimizer.load_state_dict(state['optim_state_dict'])
         logger.data = state['logger_data']
 
 
