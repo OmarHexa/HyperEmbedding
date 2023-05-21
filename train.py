@@ -19,7 +19,7 @@ from torchvision.utils import make_grid
 from skimage import io
 from skimage.color import label2rgb
 import numpy as np
-from models.BranchedERFNet import Discriminator
+from models.BranchedERFNet import Discriminator, Discriminator3
 from models.hypernet import HyperNet
 import torch.nn.functional as F
 
@@ -48,7 +48,7 @@ def trainUDA(model,discriminator,optimizer,criterion,domain_loss, source_loader,
         domain_label = domain_label.long().to(device)
         # forward source data
         output,F = model(s_img)
-        domain_out = discriminator(F[0],alpha)
+        domain_out = discriminator(F[0],F[1],F[2],alpha)
         
         
         emb_loss = criterion(output,s_inst,s_label)
@@ -73,7 +73,7 @@ def trainUDA(model,discriminator,optimizer,criterion,domain_loss, source_loader,
         domain_label = domain_label.long().to(device)
         
         F = model(t_img,only_encode=True)
-        domain_out = discriminator(F[0],alpha)
+        domain_out = discriminator(F[0],F[1],F[2],alpha)
         
         target_domain_loss = domain_loss(domain_out,domain_label)
         
@@ -261,11 +261,11 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
         output,F = model(im)
         loss = criterion(output,instances, class_labels) 
-        aux1 = criterion.module.auxiliary_loss(class_labels,F[0])
-        aux2 = criterion.module.auxiliary_loss(class_labels,F[1])
-        aux3 = criterion.module.auxiliary_loss(class_labels,F[2])
+        aux = criterion.module.auxiliary_loss(class_labels,F[0]) \
+                +(0.5*criterion.module.auxiliary_loss(class_labels,F[1]))\
+                +(0.25*criterion.module.auxiliary_loss(class_labels,F[2]))
         
-        loss = loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
+        loss = loss.mean()+ aux.mean()
         # loss = loss.mean()
 
         optimizer.zero_grad()
@@ -295,10 +295,10 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
             output,F = model(im)
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
-            aux1 = criterion.module.auxiliary_loss(class_labels,F[0])
-            aux2 = criterion.module.auxiliary_loss(class_labels,F[1])
-            aux3 = criterion.module.auxiliary_loss(class_labels,F[2])
-            loss = loss.mean()+(0.5*aux1.mean())+(0.25*aux2.mean())+(0.125*aux3.mean())
+            aux = criterion.module.auxiliary_loss( class_labels,F[0]) \
+                +(0.5*criterion.module.auxiliary_loss( class_labels,F[1]))\
+                +(0.25*criterion.module.auxiliary_loss( class_labels,F[2]))
+            loss = loss.mean()+ aux.mean()
             # loss = loss.mean()
             loss_meter.update(loss.item())
             
@@ -477,7 +477,7 @@ def begin_trianing_with_UDA(args,device):
     model = torch.nn.DataParallel(model).to(device)
     # model = HyperNet(**args['model']['kwargs'])
     # model.init_output(args['loss_opts']['n_sigma'])
-    discriminator = Discriminator()
+    discriminator = Discriminator3()
     
     # model = torch.nn.DataParallel(model).to(device)
     discriminator = torch.nn.DataParallel(discriminator).to(device)
@@ -574,4 +574,4 @@ if __name__=="__main__":
     print('Using device:', device)
     for i in range(torch.cuda.device_count()):
         print(torch.cuda.get_device_name(i))
-    begin_trianing_with_UDA(args,device=device)
+    begin_trianing(args,device=device)

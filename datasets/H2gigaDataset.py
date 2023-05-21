@@ -153,7 +153,7 @@ class H2gigaDataset(Dataset):
             
         if self.normalize:
             # image = normalize_min_max(image)
-            hs = rank_norm(hs)
+            hs = infinity_norm(hs)
             
         
         # normalize image
