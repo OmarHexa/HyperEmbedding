@@ -13,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from criterions.lovasz_losses import lovasz_hinge
-
+import torch.nn.functional as F
 
 class SpatialEmbLoss(nn.Module):
 
@@ -126,6 +126,31 @@ class SpatialEmbLoss(nn.Module):
 
         loss = loss / (b+1)
         return loss
+    def auxiliary_loss(self,labels, features,margin=10,weight=0.5):
+        b,c,h,w = features.shape
+        # Resize the label to match the feature array size
+        labels = F.interpolate(labels.float().unsqueeze(1),size=(h,w),mode='nearest').long()  # size: (H/8, W/8)
+        # Extract the unique classes in the label
+        num_class = torch.unique(labels)  # size: (num_classes,)
+        intra_losses = []
+        features = features.permute(0,2,3,1).reshape(-1,c) #size: (B*H*W,C) 
+        # Compute the mean feature vector for each class
+        mean_vectors = torch.zeros((num_class.shape[0], c),device= features.device)  # size: (batch_size, num_classes, C)
+        for i, class_idx in enumerate(num_class):
+            mask = labels == class_idx
+            masked_features = features[mask.view(-1)]
+            # masked_features = features[mask.expand_as(features)].reshape(-1, c)
+            mean_vectors[i] = torch.mean(masked_features,dim=0)  # size: (batch_size, C)
+            # dist = 1-cosine_similarity(masked_features, mean_vectors[i].repeat(masked_features.shape[0], 1))
+            dist = 1 - F.cosine_similarity(masked_features, mean_vectors[i].clone(), dim=1)
+            intra_losses.append(dist.mean())
+        # Compute the intra-class loss
+        intra_loss = torch.stack(intra_losses).mean()
+        class_sim =torch.triu(cosine_similarity(mean_vectors),diagonal=1)
+        inter_loss = class_sim[class_sim>0].sum()/len(num_class)
+        
+        loss = inter_loss+intra_loss
+        return loss
 
 
 def calculate_iou(pred, label):
@@ -138,6 +163,11 @@ def calculate_iou(pred, label):
         return iou
 
 
+def cosine_similarity(x1, x2=None, eps=1e-8):
+    x2 = x1 if x2 is None else x2
+    w1 = x1.norm(p=2, dim=1, keepdim=True)
+    w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
+    return torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
 
 
 def DiceBceLoss(inputs, targets, smooth=1):      

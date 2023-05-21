@@ -39,9 +39,13 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
-        output = model(hs,im)
+        output,F = model(hs,im)
         loss = criterion(output,instances, class_labels)
-        loss = loss.mean()
+        aux = criterion.module.auxiliary_loss(class_labels,F[0]) \
+                +(0.5*criterion.module.auxiliary_loss(class_labels,F[1]))\
+                +(0.25*criterion.module.auxiliary_loss(class_labels,F[2]))
+        loss = loss.mean()+ aux.mean()
+        # loss = loss.mean()
 
         optimizer.zero_grad()
         loss.backward()
@@ -69,9 +73,13 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
-            output = model(hs,im)
+            output,F = model(hs,im)
             loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
-            loss = loss.mean()
+            aux = criterion.module.auxiliary_loss( class_labels,F[0]) \
+                +(0.5*criterion.module.auxiliary_loss( class_labels,F[1]))\
+                +(0.25*criterion.module.auxiliary_loss( class_labels,F[2]))
+            loss = loss.mean()+ aux.mean()
+            # loss = loss.mean()
 
             loss_meter.update(loss.item())
             

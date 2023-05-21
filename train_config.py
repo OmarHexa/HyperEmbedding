@@ -10,14 +10,15 @@ from PIL import Image
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='../Data/H2giga'
+H2GIGA_DIR='../Data/augmented/H2giga'
+
 
 args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exp_multimodal',
-    resume_path='./exp_multimodal/checkpoint.pth', 
+    save_dir='./exp/multimodal',
+    resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     train_dataset = {
@@ -47,8 +48,8 @@ args = dict(
                 ]),
                 },
             
-            'batch_size': 4,
-            'workers': 2,
+            'batch_size': 20,
+            'workers': 3,
         }, 
 
     val_dataset = {
@@ -67,14 +68,14 @@ args = dict(
                 },
                 ]),
                 },
-        'batch_size': 3,
-        'workers': 1,
+        'batch_size': 10,
+        'workers': 2,
     }, 
 
     model = {
         'name': 'branched_multimodalnet', 
         'kwargs': {
-            'in_channel': 164,
+            'in_channel': 154,
             'num_classes': [4,5]
         }
     }, 

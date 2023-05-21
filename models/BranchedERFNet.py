@@ -111,7 +111,7 @@ class BranchedMultiModalNet(nn.Module):
             output_conv.weight[:, 2:2+n_sigma, :, :].fill_(0)
             output_conv.bias[2:2+n_sigma].fill_(1)
     def forward(self, hs, rgb):
-        en2,en3,en4 = self.encoder(hs,rgb)
+        features = self.encoder(hs,rgb)
 
-        return torch.cat([decoder.forward(en2,en3,en4) for decoder in self.decoders], 1)
+        return torch.cat([decoder.forward(*features) for decoder in self.decoders], 1), features
 

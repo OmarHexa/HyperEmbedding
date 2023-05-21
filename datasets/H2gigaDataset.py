@@ -29,6 +29,10 @@ def normalize_min_max_percentile(x, pmin=3, pmax=99, axis=None, clip=False, eps=
     ma = np.percentile(x, pmax, axis=axis, keepdims=True)
     return normalize_mi_ma(x, mi, ma, clip=clip, eps=eps, dtype=dtype)
 
+def infinity_norm(Data):
+    max = np.max(Data,axis=-1,keepdims=True)
+    # Scale each pixel by its feature vector length
+    return Data / max
 
 def normalize_mi_ma(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     """
@@ -107,12 +111,12 @@ class H2gigaDataset(Dataset):
         if image.shape[-1]==4:
             image = rgba2rgb(image)
         # load hs cube
-        hs = np.load(self.hs_list[index])
+        hs = np.load(self.hs_list[index])[...,10:]
         
             
         if self.normalize:
             image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
-            hs = band_quertile_norm(hs)
+            hs = infinity_norm(hs)
             
         
         # normalize image

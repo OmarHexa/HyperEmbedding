@@ -18,24 +18,34 @@ def timing(f):
         return result
     return wrap
 
+# class CBS(nn.Module):
+#     def __init__(self,in_channel,out_channel,kernel=3,stride=1,group=1) -> None:
+#         super().__init__()
+#         if kernel==3:
+#             padd = 1
+#         elif kernel==5:
+#             padd =2
+#         else:
+#             padd = 0
+#         self.conv = nn.Conv2d(in_channel,out_channel,kernel_size=kernel,stride=stride,padding=padd,groups=group)
+#         self.bn = nn.BatchNorm2d(out_channel,eps=1e-03)
+#     # @timing
+#     def forward(self,x):
+#         x = self.conv(x)
+#         x= self.bn(x)
+#         x = F.silu(x)
+#         return x
 class CBS(nn.Module):
-    def __init__(self,in_channel,out_channel,kernel=3,stride=1,group=1) -> None:
+    def __init__(self,in_channel,out_channel,kernel=3,stride=1,group=1,activation=nn.SiLU()) -> None:
         super().__init__()
-        if kernel==3:
-            padd = 1
-        elif kernel==5:
-            padd =2
-        else:
-            padd = 0
-        self.conv = nn.Conv2d(in_channel,out_channel,kernel_size=kernel,stride=stride,padding=padd,groups=group)
+        self.conv = nn.Conv2d(in_channel,out_channel,kernel_size=kernel,stride=stride,padding=(kernel-1)//2,groups=group)
         self.bn = nn.BatchNorm2d(out_channel,eps=1e-03)
-    # @timing
+        self.act = activation
     def forward(self,x):
-        x = self.conv(x)
-        x= self.bn(x)
-        x = F.silu(x)
-        return x
-
+        return self.act(self.bn(self.conv(x)))
+    def fuseforward(self,x):
+        return self.act(self.conv(x))
+    
 class non_bottleneck_1d(nn.Module):
     def __init__(self, chann, dropprob=0.3, groups =2,dilation=1):
         super().__init__()
@@ -216,26 +226,62 @@ class DownsamplerBlock(nn.Module):
 #         output = torch.cat((output1,output2),dim=1)
         
 #         return output
-class SOECA(nn.Module):
-    def __init__(self,channels,gamma=2,b=1) -> None:
+# class SOECA(nn.Module):
+#     def __init__(self,channels,gamma=2,b=1) -> None:
+#         super().__init__()
+#         t = int(abs((math.log(channels, 2) + b) / gamma))
+#         k_size = t if t % 2 else t + 1
+#         self.avg_pool = nn.AdaptiveAvgPool2d((1,1))    
+#         self.max_pool = nn.AdaptiveMaxPool2d((1,1))
+#         self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=int(k_size//2), bias=False)
+#         self.sigmoid = nn.Sigmoid()
+#     # @timing
+#     def forward(self, x):
+#         y1 = self.avg_pool(x).squeeze(-1)
+#         y2 = self.max_pool(x).squeeze(-1)
+#         cov = torch.matmul(y2, y1.transpose(1, 2))
+#         # Compute the channel-wise mean and covariance
+#         cov = torch.mean(cov, dim=1, keepdim=True)  # B x 1 X C
+#         # Compute the channel attention weights
+#         attention = self.conv(cov).transpose(-1, -2).unsqueeze(-1) 
+#         y = self.sigmoid(attention)
+#         return y
+class SOCA(nn.Module):
+    def __init__(self, channels):
         super().__init__()
-        t = int(abs((math.log(channels, 2) + b) / gamma))
-        k_size = t if t % 2 else t + 1
-        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))    
-        self.max_pool = nn.AdaptiveMaxPool2d((1,1))
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=int(k_size//2), bias=False)
-        self.sigmoid = nn.Sigmoid()
-    # @timing
+        self.avg = nn.AdaptiveAvgPool2d((20,20))
+        self.linear = nn.Linear(channels, channels)
     def forward(self, x):
-        y1 = self.avg_pool(x).squeeze(-1)
-        y2 = self.max_pool(x).squeeze(-1)
-        cov = torch.matmul(y2, y1.transpose(1, 2))
+        x = self.avg(x)
+        # Reshape the input tensor
+        batch_size, channels, height, width = x.shape
+        # B x C x hw ----> B x hw x C
+        x = x.view(batch_size, channels, height*width).transpose(1, 2)
         # Compute the channel-wise mean and covariance
-        cov = torch.mean(cov, dim=1, keepdim=True)  # B x 1 X C
+        avg = torch.mean(x, dim=1, keepdim=True)  # B x 1 X C
+        x_centered = x - avg  # B x hw x C
+        cov = torch.matmul(x_centered.transpose(
+            1, 2), x_centered) / (height*width - 1)  # B x C x C
+        cov = torch.mean(cov, dim=2, keepdim=True)  # B x C X 1
         # Compute the channel attention weights
-        attention = self.conv(cov).transpose(-1, -2).unsqueeze(-1) 
-        y = self.sigmoid(attention)
-        return y
+        return torch.sigmoid(self.linear(cov.squeeze())).view(-1,channels,1,1)
+        
+    
+class BSA(nn.Module):
+    def __init__(self,in_channel,out_channel=32) -> None:
+        super().__init__()
+        self.mid = out_channel
+        self.chattn = SOCA(in_channel)
+        self.conv = CBS(out_channel,out_channel,3,2)
+        self.Triattn = TripletAttention()
+    def forward(self,x):
+        score = torch.mean(self.chattn(x),dim=0)
+        score_id = torch.argsort(score, dim=0, descending=True).squeeze()
+        max_id,_ = torch.sort(score_id[:self.mid],dim=0)
+        x1 = x[:,max_id]*(1+score[max_id])
+        return self.conv(self.Triattn(x1))
+    
+    
 class ChannelSampler(nn.Module):
     def __init__(self,in_channel,out_channel=16) -> None:
         super().__init__()
@@ -262,22 +308,31 @@ class ChannelSampler(nn.Module):
         output = torch.sum(output, axis=2)
         return output
     
-class Upsampler(nn.Module):
-    def __init__(self, in_channel, out_channel,mode ='Bilinear'):
-        super().__init__()
-        self.conv = CBS(in_channel, out_channel, 1)
-        if mode == 'nearest':
-            self.up = nn.UpsamplingNearest2d(scale_factor=2)
-        elif mode == 'transpose':
-            self.up = nn.ConvTranspose2d(out_channel, out_channel, 3)
-        elif mode == 'Bilinear':
-            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+# class Upsampler(nn.Module):
+#     def __init__(self, in_channel, out_channel,mode ='Bilinear'):
+#         super().__init__()
+#         self.conv = CBS(in_channel, out_channel, 1)
+#         if mode == 'nearest':
+#             self.up = nn.UpsamplingNearest2d(scale_factor=2)
+#         elif mode == 'transpose':
+#             self.up = nn.ConvTranspose2d(out_channel, out_channel, 3)
+#         elif mode == 'Bilinear':
+#             self.up = nn.UpsamplingBilinear2d(scale_factor=2)
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.up(x)
-        return x
- 
+#     def forward(self, x):
+#         x = self.conv(x)
+#         x = self.up(x)
+#         return x
+class Upsampler(nn.Module):
+    def __init__(self, ninput, noutput):
+        super().__init__()
+        self.conv = nn.ConvTranspose2d(
+            ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
+        self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+    def forward(self, input):
+        output = self.conv(input)
+        output = self.bn(output)
+        return F.relu(output)
 class LCA(nn.Module):
     # Efficient Channel attention (Local)
     def __init__(self, channels, gamma=2, b=1):
@@ -419,6 +474,7 @@ class C2f(nn.Module):
         y = list(self.cv1(x).chunk(2, 1))
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
+    
 class C2FA(nn.Module):
     # CSP Bottleneck with 2 convolutions
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
@@ -445,7 +501,6 @@ class Bottleneck(nn.Module):
         self.cv1 = CBS(c1, c_, k)
         self.cv2 = CBS(c_, c2, k)
         self.add = shortcut and c1 == c2
-
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
     
@@ -564,3 +619,40 @@ class CommonSelectModule(nn.Module):
         x2= x2*attn[...,1].view(-1,attn.shape[1],1,1).expand_as(x2)
         
         return x1+x2
+
+
+class AttentionGate(nn.Module):
+    def __init__(self):
+        super(AttentionGate, self).__init__()
+        kernel_size = 7
+        self.compress = ZPool()
+        self.conv = CBS(2, 1, kernel_size)
+    def forward(self, x):
+        x_compress = self.compress(x)
+        x_out = self.conv(x_compress)
+        scale = torch.sigmoid_(x_out) 
+        return x * scale
+class ZPool(nn.Module):
+    def forward(self, x):
+        return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 )
+class TripletAttention(nn.Module):
+    def __init__(self, no_spatial=False):
+        super(TripletAttention, self).__init__()
+        self.cw = AttentionGate()
+        self.hc = AttentionGate()
+        self.no_spatial=no_spatial
+        if not no_spatial:
+            self.hw = AttentionGate()
+    def forward(self, x):
+        x_perm1 = x.permute(0,2,1,3).contiguous()
+        x_out1 = self.cw(x_perm1)
+        x_out11 = x_out1.permute(0,2,1,3).contiguous()
+        x_perm2 = x.permute(0,3,2,1).contiguous()
+        x_out2 = self.hc(x_perm2)
+        x_out21 = x_out2.permute(0,3,2,1).contiguous()
+        if not self.no_spatial:
+            x_out = self.hw(x)
+            x_out = 1/3 * (x_out + x_out11 + x_out21)
+        else:
+            x_out = 1/2 * (x_out11 + x_out21)
+        return x_out
