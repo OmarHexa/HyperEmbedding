@@ -98,6 +98,41 @@ class Discriminator(nn.Module):
         c = x.size(1)
         x= self.pool(self.reversal(x,lambda_=alpha))
         return self.disc(x.view(-1,c*10*10))
+    
+class Discriminator3(nn.Module):
+    def __init__(self,c1=256,c2=128,c3=64) -> None:
+        super().__init__()
+        self.reversal= GradientReversal()
+        self.pool= nn.AdaptiveAvgPool2d((10, 10))
+        self.disc1 =nn.Sequential(
+                        nn.Linear(c1 * 10 * 10, 100),
+                        nn.BatchNorm1d(100),
+                        nn.ReLU(True),
+                        nn.Linear(100,2),
+                        nn.LogSoftmax(dim=-1))
+        self.disc2 =nn.Sequential(
+                        nn.Linear(c2 * 10 * 10, 100),
+                        nn.BatchNorm1d(100),
+                        nn.ReLU(True),
+                        nn.Linear(100,2),
+                        nn.LogSoftmax(dim=-1))
+        self.disc3 =nn.Sequential(
+                        nn.Linear(c3 * 10 * 10, 100),
+                        nn.BatchNorm1d(100),
+                        nn.ReLU(True),
+                        nn.Linear(100,2),
+                        nn.LogSoftmax(dim=-1))
+        
+    def forward(self,x1,x2,x3,alpha):
+        c1,c2,c3 = x1.size(1),x2.size(1),x3.size(1)
+        x1= self.pool(self.reversal(x1,lambda_=alpha))
+        x2= self.pool(self.reversal(x2,lambda_=alpha))
+        x3= self.pool(self.reversal(x3,lambda_=alpha))
+        
+        x1 = self.disc1(x1.view(-1,c1*10*10))
+        x2 = self.disc2(x2.view(-1,c2*10*10))
+        x3 = self.disc3(x3.view(-1,c3*10*10))
+        return x1+x2+x3
         
 # https://www.kaggle.com/code/balraj98/unsupervised-domain-adaptation-by-backpropagation
 class GradientReversalFunction(Function):

@@ -14,7 +14,7 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='exp/hs_segment_UDA2',
+    save_dir='exp/hs_c2ftriAsppf_UDA',
     resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
@@ -107,14 +107,14 @@ args = dict(
                 },
                 ]),
                  },
-        'batch_size': 10,
-        'workers': 2,
+        'batch_size': 4,
+        'workers': 1,
     },
     model = {
         'name': 'branched_hypernet', 
         'kwargs': {
             'in_channel': 154,
-            'num_classes': 6 
+            'num_classes': [4,5]
         }
     }, 
 
@@ -123,11 +123,11 @@ args = dict(
     grid_size=1024,
     weights = [1, 7.842, 6.839, 5.683, 9.029, 9.533],
     # loss options
-    # loss_opts={
-    #     'class_weight': [7.842, 6.839, 5.683, 9.029, 9.533],
-    #     'num_class': 5,
-    #     'n_sigma': 2
-    # },
+    loss_opts={
+        'class_weight': [7.842, 6.839, 5.683, 9.029, 9.533],
+        'num_class': 5,
+        'n_sigma': 2
+    },
     
 )
 

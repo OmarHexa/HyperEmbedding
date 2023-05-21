@@ -40,7 +40,7 @@ def timing(f):
 #     def fuseforward(self,x):
 #         return F.silu(self.conv(x))
 class CBA(nn.Module):
-    def __init__(self,in_channel,out_channel,kernel=3,stride=1,group=1,activation=nn.GELU()) -> None:
+    def __init__(self,in_channel,out_channel,kernel=3,stride=1,group=1,activation=nn.SiLU()) -> None:
         super().__init__()
         self.conv = nn.Conv2d(in_channel,out_channel,kernel_size=kernel,stride=stride,padding=(kernel-1)//2,groups=group)
         self.bn = nn.BatchNorm2d(out_channel,eps=1e-03)
