@@ -34,11 +34,11 @@ class EncoderBlock(nn.Module):
         super().__init__()
         self.down = DownsamplerBlock(in_channel, out_channel)
         self.compblock = C2f(out_channel, out_channel,n=n,shortcut=True)
-        self.attention = CBAM(out_channel)
+        # self.attention = CBAM(out_channel)
     def forward(self, x):
         x = self.down(x)
         x = self.attention(x)
-        x = self.compblock(x)
+        # x = self.compblock(x)
         return x
 class EncoderBlock2(nn.Module):
     def __init__(self, in_channel,out_channel,n=3) -> None:
@@ -49,6 +49,17 @@ class EncoderBlock2(nn.Module):
         x = self.down(x)
         x = self.compblock(x)
         return x
+
+
+class EncodeStage(nn.Module):
+    def __init__(self, in_channel,out_channel,n=3) -> None:
+        super().__init__()
+        self.down = Downsampler(in_channel, out_channel)
+        self.compblock = C2f(out_channel, out_channel,n=n,shortcut=True)
+        self.attn = TripletAttention()
+    def forward(self, x):
+        return self.attn(self.compblock(self.down(x)))
+
 class DecoderBlock2(nn.Module):
     def __init__(self, in_channel, out_channel) -> None:
         super().__init__()
@@ -72,14 +83,14 @@ class DecoderBlock(nn.Module):
         return x
 
 
-class HyperEncoder(nn.Module):
+class HSEncoder(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
-        self.stem = ChannelSampler(in_channel,32)
+        self.stem = BSA(in_channel,32)
         self.encoder = nn.ModuleList()
-        self.encoder.append(EncoderBlock(32,64,n=3))
-        self.encoder.append(EncoderBlock(64,128,n=6))
-        self.encoder.append(EncoderBlock(128,256,n=6))
+        self.encoder.append(EncodeStage(32,64,n=3))
+        self.encoder.append(EncodeStage(64,128,n=6))
+        self.encoder.append(EncodeStage(128,256,n=6))
         self.encoder.append(SPPF(256,256))
 
     def forward(self, input):
@@ -89,14 +100,14 @@ class HyperEncoder(nn.Module):
         en4 = self.encoder[2](en3)
         en4 = self.encoder[3](en4)
         return  en4,en3,en2
-class HyperEncoder2(nn.Module):
+class RGBEncoder(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
         self.stem = Focus(in_channel,16)
         self.encoder = nn.ModuleList()
-        self.encoder.append(EncoderBlock2(16,64,n=3))
-        self.encoder.append(EncoderBlock2(64,128,n=6))
-        self.encoder.append(EncoderBlock2(128,256,n=6))
+        self.encoder.append(EncoderBlock(16,64,n=3))
+        self.encoder.append(EncoderBlock(64,128,n=6))
+        self.encoder.append(EncoderBlock(128,256,n=6))
         self.encoder.append(SPPF(256,256))
     # @timing
     def forward(self, input):
