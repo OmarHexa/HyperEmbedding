@@ -33,6 +33,16 @@ def infinity_norm(Data):
     max = np.max(Data,axis=-1,keepdims=True)
     # Scale each pixel by its feature vector length
     return Data / max
+def rank_norm(Data):
+    # Flatten each band into a 1D array
+    flat_data = Data.reshape(-1, Data.shape[-1])
+    # Compute the ranks of each value in each band
+    temp = flat_data.argsort(axis=-1)
+    ranks = np.empty_like(temp)
+    ranks[np.arange(temp.shape[0])[:, np.newaxis], temp] = np.arange(flat_data.shape[-1])
+    # Scale the rank values to [0, 1] range
+    return ranks.reshape(Data.shape) / (Data.shape[-1] - 1)
+
 
 def normalize_mi_ma(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     """
@@ -116,7 +126,7 @@ class H2gigaDataset(Dataset):
             
         if self.normalize:
             image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
-            hs = infinity_norm(hs)
+            hs = rank_norm(hs)
             
         
         # normalize image

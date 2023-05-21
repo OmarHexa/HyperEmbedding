@@ -17,7 +17,7 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='./exp/multimodal',
+    save_dir='./exp/multimodal_RNapMediod',
     resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
