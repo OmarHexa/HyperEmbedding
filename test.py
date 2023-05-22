@@ -46,8 +46,9 @@ def begin_test(args,n_sigma=2):
                                 batch_size=1, 
                                 shuffle=False, 
                                 drop_last=False, 
-                                num_workers=2, 
-                                pin_memory=True if args['cuda'] else False)
+                                num_workers=2, )
+    
+                                # pin_memory=True if args['cuda'] else False)
 
     # load model
     model = get_model(args['model']['name'], args['model']['kwargs'])

@@ -14,8 +14,8 @@ args = dict(
 
     cuda=True,
     save=True,
-    save_dir='exp/hs_c2ftriAsppf_inf_opttest',
-    resume_path='exp/hs_c2ftriAsppf_inf/checkpoint.pth', 
+    save_dir='exp/hs_c2ftriAsppf_RN_finetunne',
+    resume_path='exp/hs_c2ftriAsppf_RN/checkpoint.pth', 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     train_dataset = {
@@ -50,7 +50,7 @@ args = dict(
                 ]),
                 },
             
-            'batch_size': 4,
+            'batch_size': 5,
             'workers': 2,
         }, 
 
