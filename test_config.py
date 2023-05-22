@@ -7,7 +7,7 @@ import copy
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='../Data/augmented/H2giga/'
+H2GIGA_DIR='../Data'
 
 
 args = dict(
@@ -16,15 +16,15 @@ args = dict(
     display=True,
 
     save=True,
-    save_dir='./test',
-    checkpoint_path='./exp_multimodal/checkpoint.pth',
+    save_dir='./test/multimodal_RNapMediod_testdata',
+    checkpoint_path='./exp/multimodal_RNapMediod/checkpoint.pth',
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
     dataset= { 
         'name': 'H2giga',
         'kwargs': {
             'root_dir': H2GIGA_DIR,
-            'type': 'test',
+            'type': '20220715',
             'class_id': None,            
             'transform': my_transforms.get_transform([
                 {
@@ -41,7 +41,7 @@ args = dict(
     model = {
         'name': 'branched_multimodalnet',
         'kwargs': {
-            'in_channel': 164,
+            'in_channel': 154,
             'num_classes': [4, 5],
         }
     }

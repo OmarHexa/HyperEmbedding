@@ -46,8 +46,8 @@ def begin_test(args,n_sigma=2):
                                 batch_size=1, 
                                 shuffle=False, 
                                 drop_last=False, 
-                                num_workers=2, 
-                                pin_memory=True if args['cuda'] else False)
+                                num_workers=1,)
+                                # pin_memory=True if args['cuda'] else False)
 
     # load model
     model = get_model(args['model']['name'], args['model']['kwargs'])
@@ -81,8 +81,8 @@ def begin_test(args,n_sigma=2):
             
             label = sample['label'].squeeze()
         
-            output = model(hs,im)
-            instance_pred, class_pred,score = cluster.cluster(output[0], n_sigma=2,threshold=0.9,num_class=num_class)
+            output,_ = model(hs,im)
+            instance_pred, class_pred,score = cluster.cluster_local_maxima(output[0], n_sigma=2,num_class=num_class)
             pred_score = torch.sigmoid(output[0][2+n_sigma:])
             metrics.add(label.numpy(),class_pred.numpy(),pred_score.cpu().numpy())
             if args['save']:
