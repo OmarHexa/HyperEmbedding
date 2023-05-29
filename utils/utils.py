@@ -145,7 +145,7 @@ class Cluster:
                 class_map[mask.squeeze().cpu()] = class_map_masked.cpu()
 
         return instance_map.cpu(), class_map.cpu(), instance_score
-    def cluster_local_maxima(self, prediction, n_sigma=2,num_class = 5, fg_thresh=0.5,seed_thresh=0.90, min_mask_sum=0, 
+    def cluster_local_maxima(self, prediction, n_sigma=2,num_class = 5, fg_thresh=0.5,seed_thresh=0.8, min_mask_sum=0, 
                                       min_unclustered_sum=0, min_object_size=36):
         from scipy.ndimage import gaussian_filter
         height, width = prediction.size(1), prediction.size(2)

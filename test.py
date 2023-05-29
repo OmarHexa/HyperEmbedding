@@ -77,8 +77,8 @@ def begin_test(args,n_sigma=2):
 
         for sample in tqdm(dataset_it):
 
-            # im = sample['image'].to(device)
-            im = sample['hs'].to(device)
+            im = sample['image'].to(device)
+            # im = sample['hs'].to(device)
             
             label = sample['label'].squeeze()
         

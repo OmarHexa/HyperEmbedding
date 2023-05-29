@@ -182,7 +182,7 @@ def lovasz_softmax_flat(probas, labels, only_present=False):
     C = probas.size(1)
     losses = []
     for c in range(C):
-        fg = (labels == c).float()  # foreground for class c
+        fg = (labels == c).byte()  # foreground for class c
         if only_present and fg.sum() == 0:
             continue
         errors = (Variable(fg) - probas[:, c]).abs()

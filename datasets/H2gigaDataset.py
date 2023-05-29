@@ -14,7 +14,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.stats import rankdata
 
 
-def band_quertile_norm(Data):
+def band_IQR_norm(Data):
     # Calculate the mean and standard deviation of each band across the hxw dimension
     q3, q2, q1 = np.percentile(Data, [75, 50, 25], axis=(0,1))
     iqr = (q3 - q1) * 1.35
@@ -134,6 +134,8 @@ class H2gigaDataset(Dataset):
         self.size = size
         self.real_size = len(self.image_list)
         self.normalize = normalize
+        if self.normalize:
+            print("Normalization is set to infinity norm")
         self.transform = transform
     def __len__(self):
 
@@ -152,7 +154,7 @@ class H2gigaDataset(Dataset):
         
             
         if self.normalize:
-            # image = normalize_min_max(image)
+            # image = normalize_min_max_percentile(image)
             hs = infinity_norm(hs)
             
         

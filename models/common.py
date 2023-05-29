@@ -214,29 +214,58 @@ class SOCA(nn.Module):
 class BSA(nn.Module):
     def __init__(self,in_channel,out_channel=32) -> None:
         super().__init__()
-        self.mid = out_channel
+        self.mid = out_channel//2
         self.chattn = SOCA(in_channel)
         self.conv = CBA(out_channel,out_channel,3,2)
         self.attn = LSA()
+        print("channel attention has groupings")
     def forward(self,x):
         score = torch.mean(self.chattn(x),dim=0)
         score_id = torch.argsort(score, dim=0, descending=True).squeeze()
         max_id,_ = torch.sort(score_id[:self.mid],dim=0)
-        x = x[:,max_id]*(1+score[max_id])
+        x1 = x[:,max_id]*(1+score[max_id])
+        x2 = self._groupchannels(x,self.mid)
+        x = torch.cat((x1,x2),dim=1)
         return self.conv(self.attn(x))
     
-class Upsampler(nn.Module):
-    def __init__(self, ninput, noutput):
-        super().__init__()
-        self.conv = nn.ConvTranspose2d(
-            ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
-        self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+    def _groupchannels(self,input, m):
+        b,c,h,w = input.shape
+        g = c//m
+        if c%m !=0:
+            s = c-(g*m) 
+            input = input[:,s:]
+        output = input.view(b, m, g, h,w)
+        output = torch.mean(output, dim=2)
+        return output
+    
+# class Upsampler(nn.Module):
+#     def __init__(self, ninput, noutput):
+#         super().__init__()
+#         self.conv = nn.ConvTranspose2d(
+#             ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
+#         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
-    def forward(self, input):
-        output = self.conv(input)
-        output = self.bn(output)
-        return F.relu(output)
- 
+#     def forward(self, input):
+#         output = self.conv(input)
+#         output = self.bn(output)
+#         return F.relu(output)
+
+class Upsampler(nn.Module):
+    def __init__(self, in_channel, out_channel,mode ='bilinear'):
+        super().__init__()
+        self.conv = CBA(in_channel, out_channel, 1)
+        if mode == 'nearest':
+            self.up = nn.UpsamplingNearest2d(scale_factor=2)
+        elif mode == 'transpose':
+            self.up = nn.ConvTranspose2d(out_channel, out_channel, 3)
+        elif mode == 'bilinear':
+            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.up(x)
+        return x
+    
 class CBAM(nn.Module):
     # Convolutional Block Attention Module
     def __init__(self, c1, kernel_size=7):  # ch_in, kernels
@@ -338,18 +367,20 @@ class GLAM(nn.Module):
         output = self.weights[0]* Fl + self.weights[1]*Fg+self.weights[2]* input
         return output
         
-# class C2f(nn.Module):
-#     # CSP Bottleneck with 2 convolutions
-#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-#         super().__init__()
-#         self.c = int(c2 * e)  # hidden channels
-#         self.cv1 = CBA(c1, 2 * self.c, 1)
-#         self.cv2 = CBA((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
-#         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=3, e=0.5) for _ in range(n))
-#     def forward(self, x):
-#         y = list(self.cv1(x).chunk(2, 1))
-#         y.extend(m(y[-1]) for m in self.m)
-#         return self.cv2(torch.cat(y, 1))
+class C2f(nn.Module):
+    # CSP Bottleneck with 2 convolutions
+    """This c2f is used in best rgb model """
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = CBA(c1, 2 * self.c, 1)
+        self.cv2 = CBA((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=3, e=0.5) for _ in range(n))
+    def forward(self, x):
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+    
 # class C2FA(nn.Module):
 #     # CSP Bottleneck with 2 convolutions
 #     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=1):  # ch_in, ch_out, number, shortcut, groups, expansion
@@ -367,19 +398,19 @@ class GLAM(nn.Module):
 #         y.extend(m(y[-1]) for m in self.m)
 #         y = self.ca(torch.cat(y, 1))
 #         return self.cv2(y)
-class C2f(nn.Module):
-    """CSP Bottleneck with 2 convolutions."""
-    def __init__(self, c1, c2, n=3, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__()
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = CBA(c1, 2 * self.c, 1, 1)
-        self.cv2 = CBA((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, k=3,g=g, e=1.0) for _ in range(n))
-    def forward(self, x):
-        """Forward pass through C2f layer."""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        return self.cv2(torch.cat(y, 1))
+# class C2f(nn.Module):
+#     """CSP Bottleneck with 2 convolutions."""
+#     def __init__(self, c1, c2, n=3, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+#         super().__init__()
+#         self.c = int(c2 * e)  # hidden channels
+#         self.cv1 = CBA(c1, 2 * self.c, 1, 1)
+#         self.cv2 = CBA((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+#         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, k=3,g=g, e=1.0) for _ in range(n))
+#     def forward(self, x):
+#         """Forward pass through C2f layer."""
+#         y = list(self.cv1(x).chunk(2, 1))
+#         y.extend(m(y[-1]) for m in self.m)
+#         return self.cv2(torch.cat(y, 1))
     
 class C2fSG(C2f):
     # CSP Bottleneck with 2 convolutions

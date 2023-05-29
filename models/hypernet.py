@@ -34,7 +34,7 @@ def ModelSize(model):
 class EncoderBlock(nn.Module):
     def __init__(self, in_channel,out_channel,n=3) -> None:
         super().__init__()
-        self.down = DownsamplerBlock(in_channel, out_channel)
+        self.down = Downsampler(in_channel, out_channel)
         self.compblock = C2f(out_channel, out_channel,n=n,shortcut=True)
     def forward(self, x):
         x = self.down(x)
@@ -91,6 +91,18 @@ class DecoderStage(nn.Module):
         x_skip = self.skip_conv(x_skip)
         x = self.comp(torch.cat((x,x_skip),dim=1))
         return self.up(x)
+    
+class DecoderNoskip(nn.Module):
+    def __init__(self, in_channel, out_channel,n=3) -> None:
+        super().__init__()
+        self.comp = C2f(in_channel,in_channel,n=n)
+        self.up = Upsampler(in_channel, out_channel)
+        
+    def forward(self, x,x_skip):
+        x = self.comp(x)
+        x = self.up(x)
+        return x 
+       
 class DecoderRepBlock(DecoderBlock):
     def __init__(self, in_channel, out_channel,n=3) -> None:
         super().__init__(in_channel, out_channel,n)
@@ -125,13 +137,13 @@ class DecoderNoskip(nn.Module):
 class RGBEncoder(nn.Module):
     def __init__(self, in_channel):
         super().__init__()
-        self.stem = RepVGGBlock(in_channel,32,stride=2)
+        self.stem = DFocus(in_channel,32)
         self.encoder = nn.ModuleList()
-        self.encoder.append(EncoderRepBlock(32,64,n=3))
-        self.encoder.append(EncoderRepBlock(64,128,n=3))
-        self.encoder.append(EncoderRepBlock(128,256,n=3))
+        self.encoder.append(EncoderBlock(32,64,n=3))
+        self.encoder.append(EncoderBlock(64,128,n=6))
+        self.encoder.append(EncoderBlock(128,256,n=6))
         self.encoder.append(SPPF(256,256))
-    @timing
+    # @timing
     def forward(self, input):
         en1 = self.stem(input)
         en2 = self.encoder[0](en1)
@@ -193,13 +205,13 @@ class HyperEncoder2(nn.Module):
 class HyperDecoder(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.up = Upsampler(256,128)
+        self.up1 = Upsampler(256,128)
         self.decode1 = DecoderStage(128,64)
         self.decode2 = DecoderStage(64,32)
         self.output_conv = nn.ConvTranspose2d(
             32, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
     def forward(self, en4,en3,en2):
-        output= self.up(en4)
+        output= self.up1(en4)
         output = self.decode1(output,en3)
         output = self.decode2(output,en2)
         output = self.output_conv(output)
@@ -239,6 +251,24 @@ def fuse(model: nn.Module):
     model.to(device)
     
 
+class Discriminator(torch.nn.Module):
+    def __init__(self,num_classes=6,ndf=32) -> None:
+        super().__init__()
+        self.disc =nn.Sequential(
+        nn.Conv2d(num_classes, ndf, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=2, padding=1),
+        )
+        
+        
+    def forward(self,x):
+        return self.disc(x)
 
 if __name__ == "__main__":
     hs = torch.randn(20, 164, 416, 416)

@@ -85,19 +85,23 @@ class BranchedHyperNet(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self,channel=256) -> None:
         super().__init__()
-        self.reversal= GradientReversal()
-        self.pool= nn.AdaptiveAvgPool2d((10, 10))
         self.disc =nn.Sequential(
-                        nn.Linear(channel * 10 * 10, 100),
-                        nn.BatchNorm1d(100),
-                        nn.ReLU(True),
-                        nn.Linear(100,2),
-                        nn.LogSoftmax(dim=-1))
+        nn.Conv2d(num_classes, ndf, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1),
+        nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=2, padding=1),
+        nn.AdaptiveAvgPool2d((2, 2)),
+        nn.Linear(100,2),
+        nn.LogSoftmax(dim=-1)
+        )
         
     def forward(self,x,alpha):
-        c = x.size(1)
-        x= self.pool(self.reversal(x,lambda_=alpha))
-        return self.disc(x.view(-1,c*10*10))
+        return self.disc(x)
     
 class Discriminator3(nn.Module):
     def __init__(self, c1=256, c2=128, c3=64) -> None:
