@@ -225,12 +225,13 @@ def calculate_per_class_weight(data_dir, project_name, train_val_name, backgroun
     # loop over each image instance
     for i in tqdm(range(len(classmap_names)), position=0, leave=True):
         ma = io.imread(classmap_names[i])
-        ma = convert_rgb2catagory(ma)
+        ma = convert_rgb2catagory(ma,classMap=True)
+        num_pix = ma.size
 
         # loop over each class
         for class_id in class_ids:
-            y, x = np.where(ma==class_id)
-            p_class = len(y)
+            y, _ = np.where(ma==class_id)
+            p_class = len(y)/num_pix
             # calculate the weight for the class using the w_class formula
             weight = 1 / np.log(c + p_class)
             
@@ -242,7 +243,6 @@ def calculate_per_class_weight(data_dir, project_name, train_val_name, backgroun
         class_weights[class_id] = np.mean(class_statistics[class_id])
     print("Foreground weight of the `{}` dataset set equal to '{}'".format(project_name,class_weights))
     return class_weights
-
 
 
 def calculate_object_size(data_dir, project_name, train_val_name, process_k, background_id=0):

@@ -1,6 +1,7 @@
 best_iou_model*
 checkpoint*
 exp*/
+test*/
 .gitignore
 __pycache__
 .vscode

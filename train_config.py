@@ -5,19 +5,16 @@ Licensed under the CC BY-NC 4.0 license (https://creativecommons.org/licenses/by
 import copy
 import os
 
-from PIL import Image
-
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='./../augmented_data/H2giga'
+H2GIGA_DIR='../Data/augmented/H2giga'
 
 args = dict(
 
-    cuda=False,
-
+    cuda=True,
     save=True,
-    save_dir='./exp',
+    save_dir='exp/hs_c2fa+centroid+bandquertilenorm+auxloss_BSAl1',
     resume_path=None, 
     color_map={0:(0,0,0),1: (21, 176, 26), 2:(5, 73, 7),3: (170, 166, 98),4: (229, 0, 0), 5: (140, 0, 15)},
     num_class = 5,
@@ -30,70 +27,75 @@ args = dict(
             'size': None,
             'normalize':True,
             'transform': my_transforms.get_transform([
-                {
-                    'name': 'RandomRotationsAndFlips',
-                    'opts': {
-                        'keys': ('image', 'instance','label'),
-                        'degrees': 90,
-                    }
-                },
+                #  {
+                #     'name': 'RandomRotationsAndFlips',
+                #     'opts': {
+                #         'keys': ('image', 'instance','label'),
+                #         'degrees': 90,
+                #     }
+                # },
+                #   {
+                #     'name': 'ColorAugmentation',
+                #     'opts': {
+                #         'keys': ('image', 'instance', 'label'),
+                #     }
+                # },
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
-                    }
+                        'keys': ('image','hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                            }
+                }
+                ]),
                 },
-            ]),
-        },
-        'batch_size': 2,
-        'workers': 1,
-    }, 
+            
+            'batch_size': 12,
+            'workers': 4,
+        }, 
 
     val_dataset = {
         'name': 'H2giga',
         'kwargs': {
             'root_dir': H2GIGA_DIR,
             'type': 'val',
+            'normalize':True,
             'transform': my_transforms.get_transform([
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
-                    }
+                        'keys': ('image','hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                            }
                 },
-            ]),
-        },
-        'batch_size': 2,
-        'workers': 1,
+                ]),
+                },
+        'batch_size': 12,
+        'workers': 4,
     }, 
 
     model = {
-        'name': 'branched_erfnet', 
+        'name': 'branched_hypernet', 
         'kwargs': {
+            'in_channel': 164,
             'num_classes': [4,5]
         }
     }, 
 
     lr=5e-4,
-    n_epochs=1,
-    grid_size = 1024,
+    n_epochs=50,
+    grid_size=1024,
 
     # loss options
     loss_opts={
-        'to_center': True,
-        'n_sigma': 2,
-        'class_weight': [10, 10, 10, 10, 10],
-        'num_class': 5
+        'class_weight': [7.842, 6.839, 5.683, 9.029, 9.533],
+        'num_class': 5,
+        'n_sigma': 2
     },
-    loss_w={
-        'w_inst': 1,
-        'w_var': 10,
-        'w_seed': 5,
-    },
+    
 )
 
 
 def get_args():
     return copy.deepcopy(args)
+# [7.842, 6.839, 5.683, 9.029, 9.533]

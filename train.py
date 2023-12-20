@@ -25,7 +25,6 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     # define meters
     loss_meter = AverageMeter()
-
     # put model into training mode
     model.train()
 
@@ -34,23 +33,26 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     for i, sample in enumerate(tqdm(train_dataloader)):
 
-        im = sample['image'].to(device)
+        im = sample['hs'].to(device)
+        # im = sample['image'].to(device)
+
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
-        output = model(im)
-        loss = criterion(output, instances, class_labels, **args['loss_w'])
-        loss = loss.mean()
+        output,features = model(im)
+        loss = criterion(output,instances, class_labels)
+        aux = criterion.module.auxiliary_loss(class_labels,features)
+        loss = loss.mean()+(0.5*aux.mean())
+        # loss = loss.mean()
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         loss_meter.update(loss.item())
-
     return loss_meter.avg
 
 
-def val(args,model,criterion,val_dataloader,cluster,visualizer,device,epoch):
+def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
     # define meters
     loss_meter, iou_meter = AverageMeter(), AverageMeter()
@@ -62,32 +64,36 @@ def val(args,model,criterion,val_dataloader,cluster,visualizer,device,epoch):
 
         for i, sample in enumerate(tqdm(val_dataloader)):
 
-            im = sample['image'].to(device)
+            im = sample['hs'].to(device)
+            # im = sample['image'].to(device)
+
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
-            output = model(im)
-            loss = criterion(output, instances, class_labels, **
-                             args['loss_w'], iou=True, iou_meter=iou_meter)
-            loss = loss.mean()
-
+            output,features = model(im)
+            loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
+            aux = criterion.module.auxiliary_loss(class_labels,features)
+            loss = loss.mean()+(0.5*aux.mean())
+            # loss = loss.mean()
             loss_meter.update(loss.item())
             
         if args['save']:
-                image = (im[0].numpy() *255).transpose(1,2,0)
-                labels = class_labels[0].numpy()
+            image = sample['image'][0]
+            image = (image.numpy() *255).transpose(1,2,0)
+            labels = class_labels[0].cpu().numpy()
                 
-                base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
-                name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+base+'.png')
-                labels = visualizer.label2colormap(labels)
-                gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
+            base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
+            name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
+            labels = visualizer.label2colormap(labels)
+            gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
                 
                 
-                offset, sigma,pred = visualizer.prepare_internal(output=output[0])
+            offset, sigma,pred = visualizer.prepare_internal(output=output[0].cpu())
                 
-                grid = make_grid([gt,pred,offset,sigma],nrow=2)
-                grid = grid.permute(1,2,0).numpy()
-                io.imsave(name,grid)
+            grid = make_grid([gt,pred,offset,sigma],nrow=2)
+            grid = grid.permute(1,2,0).numpy()
+            io.imsave(name,grid)
+            print("image saved as {}".format(name))
 
     return loss_meter.avg, iou_meter.avg
 
@@ -105,8 +111,8 @@ def begin_trianing(args,device):
                                     batch_size=args['train_dataset']['batch_size'],
                                     shuffle=True,
                                     drop_last=True,
-                                    num_workers=args['train_dataset']['workers'],
-                                    pin_memory=True if args['cuda'] else False)
+                                    num_workers=args['train_dataset']['workers'])
+#                                     pin_memory=True if args['cuda'] else False)
 
 
 # val dataloader
@@ -116,8 +122,8 @@ def begin_trianing(args,device):
                                     batch_size=args['val_dataset']['batch_size'],
                                     shuffle=True,
                                     drop_last=True,
-                                    num_workers=args['train_dataset']['workers'],
-                                    pin_memory=True if args['cuda'] else False)
+                                    num_workers=args['train_dataset']['workers'])
+#                                     pin_memory=True if args['cuda'] else False)
 
 
 # set model
@@ -136,6 +142,7 @@ def begin_trianing(args,device):
     def lambda_(epoch):
         return pow((1-((epoch)/args['n_epochs'])), 0.9)
 
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_,)
 
 
     # clustering
@@ -143,7 +150,7 @@ def begin_trianing(args,device):
 
 
     # Logger
-    logger = Logger(('train_loss', 'val_loss', 'iou'), 'loss')
+    logger = Logger(('train', 'val', 'iou'), 'loss')
     
     #visualizer
     visualizer = Visualizer(args)
@@ -169,15 +176,15 @@ def begin_trianing(args,device):
             shutil.copyfile(file_name, os.path.join(
                 args['save_dir'], 'best_iou_model.pth'))
 
-
+    
+    print(model.modules) #print modules for letter modules inspection
     for epoch in range(start_epoch, args['n_epochs']):
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_,)
         
 
         print('Starting epoch {}'.format(epoch))
 
         train_loss = train(args,model,optimizer,criterion,train_dataloader,device)
-        val_loss, val_iou = val(args,model,criterion,train_dataloader,cluster,visualizer,device,epoch=epoch)
+        val_loss, val_iou = val(args,model,criterion,val_dataloader,visualizer,device,epoch=epoch)
         scheduler.step()
         
 
@@ -205,5 +212,12 @@ def begin_trianing(args,device):
 
 if __name__=="__main__":
     args =train_config.get_args()
-    device ='cpu'
+    if args['save']:
+        if not os.path.exists(args['save_dir']):
+            os.makedirs(args['save_dir'])
+            print("created directory {}".format(args["save_dir"]))
+    device = torch.device("cuda:0" if args['cuda'] & torch.cuda.is_available() else "cpu")
+    print('Using device:', device)
+    for i in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_name(i))
     begin_trianing(args,device=device)

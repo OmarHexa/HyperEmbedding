@@ -13,7 +13,7 @@ from skimage.color import label2rgb
 from skimage import io
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import confusion_matrix
-
+from skimage.feature import peak_local_max
 
 
 
@@ -144,7 +144,68 @@ class Cluster:
                 instance_map[mask.squeeze().cpu()] = instance_map_masked.cpu()
                 class_map[mask.squeeze().cpu()] = class_map_masked.cpu()
 
-        return instance_map, class_map, instance_score
+        return instance_map.cpu(), class_map.cpu(), instance_score
+    def cluster_local_maxima(self, prediction, n_sigma=2,num_class = 5, fg_thresh=0.5,seed_thresh=0.90, min_mask_sum=0, 
+                                      min_unclustered_sum=0, min_object_size=36):
+        from scipy.ndimage import gaussian_filter
+        height, width = prediction.size(1), prediction.size(2)
+        xym_s = self.xym[:, 0:height, 0:width]
+        
+        spatial_emb = torch.tanh(prediction[0:2]) + xym_s  # 2 x h x w
+        sigma = prediction[2:2+n_sigma]  # n_sigma x h x w
+        seed_map = torch.sigmoid(prediction[2+n_sigma:2+n_sigma + num_class])  # num_class x h x w
+       
+        instance_map = torch.zeros(height, width).short()
+        class_map = torch.zeros(height, width).short()
+        instance_score = []
+
+        count = 1
+        for i in range(num_class):
+            class_seed = seed_map[i]
+            mask_fg = class_seed > fg_thresh
+            seed_map_cpu = class_seed.cpu().detach().numpy()
+            seed_map_cpu_smooth = gaussian_filter(seed_map_cpu, sigma=3)
+            coords = peak_local_max(seed_map_cpu_smooth)
+            # zeros = np.zeros((coords.shape[0], 1), dtype=np.uint8)
+            # coords = np.hstack((zeros, coords))
+
+            mask_local_max_cpu = np.zeros(seed_map_cpu.shape, dtype=np.bool)
+            mask_local_max_cpu[tuple(coords.T)] = True
+            mask_local_max = torch.from_numpy(mask_local_max_cpu).bool().to(self.device)
+
+            mask_seed = mask_fg * mask_local_max
+            if mask_fg.sum() > min_mask_sum:
+                spatial_emb_fg_masked = spatial_emb[mask_fg.expand_as(spatial_emb)].view(n_sigma, -1)  # fg candidate pixels
+                spatial_emb_seed_masked = spatial_emb[mask_seed.expand_as(spatial_emb)].view(n_sigma, -1)  # seed candidate pixels
+
+                sigma_seed_masked = sigma[mask_seed.expand_as(sigma)].view(n_sigma, -1)  # sigma for seed candidate pixels
+                seed_map_seed_masked = class_seed[mask_seed].view(1, -1)  # seediness for seed candidate pixels
+
+                unprocessed = torch.ones(mask_seed.sum()).short().to(self.device)  # unclustered seed candidate pixels
+                unclustered = torch.ones(mask_fg.sum()).short().to(self.device)  # unclustered fg candidate pixels
+                instance_map_masked = torch.zeros(mask_fg.sum()).short().to(self.device)
+                class_map_masked = torch.zeros(mask_fg.sum()).short().to(self.device)
+                
+                while (unprocessed.sum() > min_unclustered_sum):
+                    seed = (seed_map_seed_masked * unprocessed.float()).argmax().item()
+                    seed_score = (seed_map_seed_masked * unprocessed.float()).max().item()
+                    if seed_score < seed_thresh:
+                        break
+                    center = spatial_emb_seed_masked[:, seed:seed + 1]
+                    unprocessed[seed] = 0
+                    s = torch.exp(sigma_seed_masked[:, seed:seed + 1] * 10)
+                    dist = torch.exp(-1 * torch.sum(torch.pow(spatial_emb_fg_masked - center, 2) * s, 0))
+                    proposal = (dist > 0.5).squeeze()
+                    if proposal.sum() > min_object_size:
+                        if unclustered[proposal].sum().float() / proposal.sum().float() > 0.5:
+                            instance_map_masked[proposal.squeeze()] = count
+                            class_map_masked[proposal.squeeze()] = i+1
+                            instance_score.append(seed_score)
+                            count += 1
+                    unclustered[proposal] = 0
+                instance_map[mask_fg.squeeze().cpu()] = instance_map_masked.cpu()
+                class_map[mask_fg.squeeze().cpu()] = class_map_masked.cpu()
+        return instance_map.cpu(), class_map.cpu(),instance_score
 
 class Logger:
 
@@ -226,7 +287,19 @@ class Visualizer:
                 index = j+(20*i)+1
                 color_label[label ==index] = tuple(int(color*255) for color in self.cmap.colors[j])
         return color_label
-    
+    def prepare_segment(self,output):
+        prediction = torch.zeros_like(output[0])
+        for i in range(self.num_class):
+            temp =output[i]>0.5
+            prediction[temp] =i
+        prediction = torch.from_numpy(self.label2colormap(prediction.numpy())).permute(2,0,1)
+        return prediction
+    def prepare_pred(self,output):
+        prediction = torch.zeros_like(output[0])
+        for i in range(self.num_class):
+            temp =output[i]>0.5
+            prediction[temp] =i
+        return prediction
     def prepare_internal(self,output):
         vec_x = self.normalize(torch.tanh(output[0])) # h x w
         vec_y = self.normalize(torch.tanh(output[1]))
@@ -237,11 +310,11 @@ class Visualizer:
         
         
         sigma = torch.stack([sigma_x,sigma_y,padd],dim=0) #3 x h x w
-        offset = torch.stack([sigma_x,sigma_y,padd],dim=0) #3 x h x w
+        offset = torch.stack([vec_x,vec_y,padd],dim=0) #3 x h x w
         
         prediction = torch.zeros_like(vec_x)
         for i in range(self.num_class):
-            temp =torch.sigmoid(output[i+4])>0.9
+            temp =torch.sigmoid(output[i+4])>0.5
             prediction[temp] =i+1
         prediction = torch.from_numpy(self.label2colormap(prediction.numpy())).permute(2,0,1)
         offset = offset*255
